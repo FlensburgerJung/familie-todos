@@ -8,8 +8,28 @@ als vier verschiedene Client-Bibliotheken.
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.error
 import urllib.request
+
+_context = None
+
+
+def _ssl_context():
+    """TLS-Kontext mit verlässlichen Wurzelzertifikaten.
+
+    Python bringt auf macOS keine mit; ohne certifi scheitert jeder Aufruf an
+    Mistral, Anthropic oder OpenAI mit "unable to get local issuer certificate".
+    Einmal gebaut und wiederverwendet.
+    """
+    global _context
+    if _context is None:
+        try:
+            import certifi
+            _context = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            _context = ssl.create_default_context()
+    return _context
 
 
 class LLMError(RuntimeError):
@@ -27,13 +47,21 @@ def post_json(url: str, payload: dict, headers: dict, timeout: int = 60) -> dict
     for key, value in headers.items():
         request.add_header(key, value)
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with urllib.request.urlopen(request, timeout=timeout,
+                                    context=_ssl_context()) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", "replace")[:500]
         raise LLMError(f"HTTP {exc.code}: {detail}", status=exc.code) from exc
     except urllib.error.URLError as exc:
-        raise LLMError(f"Nicht erreichbar: {exc.reason}") from exc
+        reason = str(exc.reason)
+        if "CERTIFICATE_VERIFY_FAILED" in reason:
+            raise LLMError(
+                "TLS-Zertifikat nicht prüfbar. Python auf macOS bringt keine "
+                "Wurzelzertifikate mit - mit `pip3 install --user certifi` "
+                "beheben oder die App aus der .venv starten."
+            ) from exc
+        raise LLMError(f"Nicht erreichbar: {reason}") from exc
     except TimeoutError as exc:
         raise LLMError("Zeitüberschreitung") from exc
 

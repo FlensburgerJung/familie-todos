@@ -1,3 +1,5 @@
 # Nur für den Online-Betrieb nötig. Zuhause läuft die App ohne Installation.
 gunicorn==23.0.0
 pg8000==1.31.5
+# Wurzelzertifikate: ohne sie scheitert die TLS-Pruefung zu Neon auf macOS
+certifi>=2024.2.2

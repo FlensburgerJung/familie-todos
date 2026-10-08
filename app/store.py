@@ -48,13 +48,31 @@ def _connect_sqlite():
     return conn
 
 
+def _ssl_context():
+    """TLS-Kontext mit verlässlichen Wurzelzertifikaten.
+
+    Python bringt auf macOS keine mit, deshalb scheitert die Prüfung dort mit
+    "unable to get local issuer certificate". certifi liefert sie als Paket -
+    plattformunabhängig und auch auf dem Server die sichere Variante.
+    """
+    import ssl
+
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        # Ohne certifi die Zertifikate des Systems nehmen. Auf Linux-Servern
+        # reicht das meist, auf macOS in der Regel nicht.
+        return ssl.create_default_context()
+
+
 def _connect_postgres():
     try:
         import pg8000.dbapi
     except ImportError as exc:  # pragma: no cover - nur ohne installiertes Paket
         raise StoreError(
             "DATABASE_URL ist gesetzt, aber der Treiber pg8000 fehlt. "
-            "Installieren mit: pip install pg8000"
+            "Installieren mit: pip install -r requirements.txt"
         ) from exc
 
     import ssl
@@ -68,7 +86,7 @@ def _connect_postgres():
 
     options = parse_qs(url.query)
     sslmode = (options.get("sslmode") or ["require"])[0]
-    context = None if sslmode == "disable" else ssl.create_default_context()
+    context = None if sslmode == "disable" else _ssl_context()
 
     conn = pg8000.dbapi.connect(
         user=unquote(url.username or ""),

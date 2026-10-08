@@ -23,7 +23,14 @@ def _unquote(value: str) -> str:
 
 
 def load(path: Path | None = None) -> list[str]:
-    """Lädt die Datei und gibt die Namen der gesetzten Variablen zurück."""
+    """Lädt die Datei und gibt die Namen der gesetzten Variablen zurück.
+
+    Mit NO_DOTENV=1 wird nichts geladen - nötig, wenn man bewusst gegen die
+    lokale SQLite-Datei arbeiten will, obwohl in der .env eine DATABASE_URL
+    steht (etwa beim Umzug der Daten in die Online-Datenbank).
+    """
+    if os.environ.get("NO_DOTENV"):
+        return []
     target = path or ENV_PATH
     if not target.exists():
         return []
