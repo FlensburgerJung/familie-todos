@@ -379,6 +379,12 @@ function reviewCard(todo) {
   const suggestion = todo.suggestion || {};
   const wantsNewList = Boolean(suggestion.newList);
 
+  /* Auf einem Wunschzettel oder einer Merkliste gibt es nichts zu terminieren,
+     zu schätzen oder zu wiederholen - ein Buchwunsch dauert keine 30 Minuten.
+     Diese Felder bleiben dort weg, statt leer herumzustehen. */
+  const targetKind = listKind(todo.listId);
+  const dated = targetKind === 'tasks' || targetKind === 'appointments';
+
   const titleInput = el('input', { type: 'text', value: todo.title });
 
   const listSelect = el('select', {}, [
@@ -402,6 +408,14 @@ function reviewCard(todo) {
   ]);
   const syncNewList = () => { newListWrap.hidden = listSelect.value !== '__new__'; };
   listSelect.addEventListener('change', syncNewList);
+  // Nach einem Listenwechsel passen die sichtbaren Felder womöglich nicht mehr.
+  listSelect.addEventListener('change', () => {
+    const neuArt = listKind(listSelect.value);
+    const neuDatiert = neuArt === 'tasks' || neuArt === 'appointments';
+    if (listSelect.value && listSelect.value !== '__new__' && neuDatiert !== dated) {
+      render();
+    }
+  });
 
   const personSelect = el('select', {}, [
     el('option', { value: '', text: '— niemand —' }),
@@ -433,14 +447,14 @@ function reviewCard(todo) {
   const confirmBtn = el('button', { class: 'btn btn-primary', text: 'Passt so' });
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled = true;
-    const payload = {
-      title: titleInput.value,
-      assigneeId: personSelect.value,
-      dueDate: dueInput.value,
-      priority: prioSelect.value,
-      repeat: repeatSelect.value,
-      minutes: Number(effortSelect.value),
-    };
+    const payload = { title: titleInput.value };
+    if (dated) {
+      payload.assigneeId = personSelect.value;
+      payload.dueDate = dueInput.value;
+      payload.priority = prioSelect.value;
+      payload.repeat = repeatSelect.value;
+      payload.minutes = Number(effortSelect.value);
+    }
     if (listSelect.value === '__new__') {
       if (!newListInput.value.trim()) {
         toast('Bitte der neuen Liste einen Namen geben.', true);
@@ -477,11 +491,11 @@ function reviewCard(todo) {
     el('div', { class: 'fields' }, [
       el('label', { class: 'field wide' }, [el('span', { text: 'Liste' }), listSelect]),
       newListWrap,
-      el('label', { class: 'field' }, [el('span', { text: 'Wer' }), personSelect]),
-      el('label', { class: 'field' }, [el('span', { text: 'Fällig' }), dueInput]),
-      el('label', { class: 'field' }, [el('span', { text: 'Priorität' }), prioSelect]),
-      el('label', { class: 'field' }, [el('span', { text: 'Wiederholung' }), repeatSelect]),
-      el('label', { class: 'field' }, [el('span', { text: 'Dauer' }), effortSelect]),
+      dated ? el('label', { class: 'field' }, [el('span', { text: 'Wer' }), personSelect]) : null,
+      dated ? el('label', { class: 'field' }, [el('span', { text: 'Fällig' }), dueInput]) : null,
+      dated ? el('label', { class: 'field' }, [el('span', { text: 'Priorität' }), prioSelect]) : null,
+      dated ? el('label', { class: 'field' }, [el('span', { text: 'Wiederholung' }), repeatSelect]) : null,
+      dated ? el('label', { class: 'field' }, [el('span', { text: 'Dauer' }), effortSelect]) : null,
     ]),
     el('div', { class: 'actions' }, [
       confirmBtn,
