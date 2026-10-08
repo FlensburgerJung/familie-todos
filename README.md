@@ -279,6 +279,15 @@ keine Dauer, erscheinen nicht unter „überfällig", nicht im Tab „Listen", n
 bei „frei zu vergeben" und nicht im Kalender. Ein Buchtipp oder „mal an die
 Ostsee fahren" soll einen schließlich nicht als überfällig anmahnen.
 
+### Notizen an Todos
+
+Die Einordnung schreibt häufig einen kurzen Hinweis dazu — was offen bleibt,
+welche Angabe fehlt, was zu bedenken ist. Solche Notizen tragen ein kleines
+**KI**-Zeichen und stehen kursiv, damit man sie von eigenen unterscheidet.
+
+Über **⋯** lässt sich jede Notiz bearbeiten. Sobald du sie änderst,
+verschwindet das Zeichen — dann ist es deine Notiz.
+
 ### Notizzettel
 
 Der Bereich **📌 PostIt** ist für alles, was man sich kurz merken will. Eine

@@ -77,7 +77,10 @@ SCHEMA = {
         },
         "note": {
             "type": "string",
-            "description": "Details aus dem Text, die nicht in den Titel passen. Sonst leer.",
+            "description": "Was beim Erledigen hilft: Angaben aus dem Einwurf (Ort, "
+                           "Menge, Ansprechpartner) und wo sinnvoll ein kurzer Hinweis, "
+                           "was unklar ist oder zu bedenken wäre. Höchstens zwei Sätze. "
+                           "Keine Wiederholung des Titels.",
         },
         "tags": {"type": "array", "items": {"type": "string"}},
         "confidence": {
@@ -128,7 +131,10 @@ Montag" -> weekly, "alle zwei Wochen" -> biweekly, "monatlich" -> monthly, \
 - `confidence` ehrlich einschätzen: unter 0.7 heißt, die Familie bestätigt die Einordnung \
 von Hand. Bei mehrdeutigen Einwürfen ist ein niedriger Wert richtig.
 - `question` nur stellen, wenn eine Antwort die Einordnung wirklich ändern würde.
-- Titel im Imperativ, kurz, ohne Füllwörter: "Heizung bei Hausverwaltung melden"."""
+- Titel im Imperativ, kurz, ohne Füllwörter: "Heizung bei Hausverwaltung melden".
+- `note` darf Angaben aus dem Einwurf festhalten ("3. OG links", "Tel. 0170-123") \
+und kurz anmerken, was offen bleibt oder zu bedenken ist. Höchstens zwei Sätze, und \
+nie den Titel wiederholen."""
 
 
 WEEKDAYS_DE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag",

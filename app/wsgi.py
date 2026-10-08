@@ -174,6 +174,9 @@ def _capture(payload: dict) -> dict:
         "repeat": result.get("repeat", ""), "minutes": result.get("minutes", 0),
         "status": "open" if confident else "inbox", "confidence": result["confidence"],
         "question": result["question"], "tags": result["tags"], "engine": engine,
+        # Notizen aus der Einordnung werden gekennzeichnet - sie sind ein
+        # Vorschlag, keine Festlegung der Familie.
+        "noteSource": "model" if result["note"] and engine != "manuell" else "",
         "suggestion": {"newList": result["new_list"], "newListEmoji": result["new_list_emoji"]},
     })
     return {"todo": todo, "engine": engine, "problems": problems, "autoFiled": confident}

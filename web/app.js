@@ -542,7 +542,14 @@ function todoCard(todo, { overdue = false } = {}) {
 
   const body = el('div', { class: 'todo-body' }, [
     el('div', { class: 'todo-title', text: todo.title }),
-    todo.note ? el('div', { class: 'todo-note', text: todo.note }) : null,
+    todo.note
+      ? el('div', { class: 'todo-note' + (todo.noteSource === 'model' ? ' from-model' : '') },
+          todo.noteSource === 'model'
+            ? [el('span', { class: 'note-tag', title: 'Hinweis aus der Einordnung — '
+                            + 'bearbeiten über ⋯, dann gilt er als deiner', text: 'KI' }),
+               ' ', todo.note]
+            : todo.note)
+      : null,
     metaChips(todo),
   ]);
 
@@ -601,6 +608,12 @@ function reviewCard(todo) {
   const dated = (areaOf(targetKind) || { dated: true }).dated;
 
   const titleInput = el('input', { type: 'text', value: todo.title });
+  // Bisher liess sich die Notiz nicht aendern - dabei schreibt das Modell
+  // gelegentlich Ueberfluessiges hinein, das man loswerden will.
+  const noteInput = el('textarea', {
+    rows: '2', placeholder: 'Notiz (optional)',
+  });
+  noteInput.value = todo.note || '';
 
   const listSelect = el('select', {}, [
     el('option', { value: '', text: '— Liste wählen —' }),
@@ -662,7 +675,11 @@ function reviewCard(todo) {
   const confirmBtn = el('button', { class: 'btn btn-primary', text: 'Passt so' });
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled = true;
-    const payload = { title: titleInput.value, assigneeId: personSelect.value };
+    const payload = {
+      title: titleInput.value,
+      note: noteInput.value.trim(),
+      assigneeId: personSelect.value,
+    };
     if (!dated && targetKind === 'postits') payload.dueDate = dueInput.value;
     if (dated) {
       payload.dueDate = dueInput.value;
@@ -700,6 +717,11 @@ function reviewCard(todo) {
 
   const card = el('div', { class: 'card review' }, [
     el('label', { class: 'field' }, [el('span', { text: 'Todo' }), titleInput]),
+    el('label', { class: 'field' }, [
+      el('span', {}, todo.noteSource === 'model'
+        ? [el('span', { class: 'note-tag', text: 'KI' }), ' Notiz — beim Speichern wird sie deine']
+        : 'Notiz'),
+      noteInput]),
     todo.question ? el('div', { class: 'question', text: `❓ ${todo.question}` }) : null,
     todo.rawInput && todo.rawInput !== todo.title
       ? el('div', { class: 'todo-note', text: `Eingeworfen: „${todo.rawInput}“` }) : null,

@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS todos (
     minutes       INTEGER NOT NULL DEFAULT 0,
     created_from  TEXT NOT NULL DEFAULT '',
     done_by       TEXT NOT NULL DEFAULT '',
+    note_source   TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
     done_at       TEXT
 );
@@ -133,6 +134,7 @@ LATER_COLUMNS = [
     ("todos", "created_from", "TEXT NOT NULL DEFAULT ''"),
     ("lists", "in_overview", "INTEGER NOT NULL DEFAULT 1"),
     ("todos", "done_by", "TEXT NOT NULL DEFAULT ''"),
+    ("todos", "note_source", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -495,6 +497,7 @@ def _todo_row(row: dict) -> dict:
         "createdAt": row["created_at"], "doneAt": row["done_at"],
         "createdFrom": row.get("created_from") or "",
         "doneBy": row.get("done_by") or "",
+        "noteSource": row.get("note_source") or "",
     }
 
 
@@ -516,8 +519,8 @@ def create_todo(data: dict) -> dict:
     store.execute(
         "INSERT INTO todos (id, title, raw_input, note, list_id, assignee_id, horizon,"
         " due_date, priority, status, confidence, question, tags, engine, suggestion,"
-        " created_at, done_at, repeat_rule, minutes, created_from)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " created_at, done_at, repeat_rule, minutes, created_from, note_source)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             todo_id,
             (data.get("title") or "").strip() or "Ohne Titel",
@@ -531,7 +534,7 @@ def create_todo(data: dict) -> dict:
             json.dumps(data.get("suggestion", {}), ensure_ascii=False),
             data.get("createdAt") or now_ts(), data.get("doneAt"),
             data.get("repeat", ""), int(data.get("minutes") or 0),
-            data.get("createdFrom", ""),
+            data.get("createdFrom", ""), data.get("noteSource", ""),
         ),
     )
     return get_todo(todo_id)
@@ -543,6 +546,7 @@ def update_todo(todo_id: str, fields: dict) -> dict | None:
         "horizon": "horizon", "dueDate": "due_date", "priority": "priority",
         "status": "status", "question": "question", "confidence": "confidence",
         "repeat": "repeat_rule", "minutes": "minutes",
+        "noteSource": "note_source",
     }
     sets, values = [], []
     for key, column in column_for.items():
@@ -552,6 +556,10 @@ def update_todo(todo_id: str, fields: dict) -> dict | None:
     if "tags" in fields:
         sets.append("tags=?")
         values.append(json.dumps(fields["tags"], ensure_ascii=False))
+    # Eine von Hand geaenderte Notiz gehoert nicht mehr dem Modell.
+    if "note" in fields and "noteSource" not in fields:
+        sets.append("note_source=?")
+        values.append("")
     if fields.get("status") == "done":
         sets.append("done_at=?")
         values.append(now_ts())
