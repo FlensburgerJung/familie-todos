@@ -186,9 +186,16 @@ angetippt hat.
 
 ## Tabs
 
-- **Start** — die Übersicht. Oben vier Kacheln (heute, nächste Tage, überfällig,
-  zu prüfen), darunter wer was offen hat, darunter die Bereiche. Jede Kachel
-  öffnet die passende Liste; von dort führt „‹ Start" zurück.
+- **Start** — die Schaltzentrale, von oben nach unten:
+  1. Eingabefeld zum Reinwerfen
+  2. schmale Statuszeile: überfällig · heute · zu prüfen
+  3. **Bereiche** — eine Kachel je Aufgaben- und Terminliste, volle zuerst
+  4. **Wer macht was** — je Person, plus „Frei zu vergeben"
+  5. **Wunschzettel** — je einer pro Person
+  6. **Merken** — Bücher/Filme/Podcasts und die regelmäßigen Aufgaben
+
+  Jede Kachel und jede Zeile öffnet ihre Liste; „‹ Start" führt zurück.
+  Einstellungen liegen bewusst außerhalb, im Tab „Mehr".
 - **Listen** — alles Offene, nach Bereich gruppiert.
 - **Woche** — sieben Tage untereinander, mit ‹ › durch die Wochen. Was vor der
   laufenden Woche liegt, steht oben unter „Liegengeblieben".
@@ -211,6 +218,7 @@ Nicht alles ist eine Aufgabe mit Frist. Jede Liste hat eine Art:
 | Art | Wofür | Termine |
 |---|---|---|
 | **Aufgaben** | Haushalt, Einkauf, Behörden … | ja |
+| **Termine** | was in den Familienkalender gehört | ja |
 | **Wünsche** | Geschenkideen, Wunschlisten | nein |
 | **Bücher, Filme, Podcasts** | was man mal lesen, sehen, hören will | nein |
 
