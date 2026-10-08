@@ -97,7 +97,7 @@ DEFAULT_SETTINGS = {
     "provider": "auto",
     "confidence_threshold": "0.7",
     "anthropic_model": "claude-opus-5",
-    "mistral_model": "mistral-large-latest",
+    "mistral_model": "mistral-small-latest",
     "openai_model": "gpt-4o-mini",
     "ollama_model": "gemma4:12b-mlx",
     "ollama_url": "http://localhost:11434",

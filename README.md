@@ -114,11 +114,15 @@ Das funktioniert in beide Richtungen und ist zugleich das Backup.
 
 | Anbieter | Wofür | Schlüssel nötig |
 |---|---|---|
-| **Claude** (Anthropic) | beste Einordnung | ja |
-| **Mistral** | europäischer Anbieter | ja |
+| **Mistral** | eingestellt; europäisch, günstig | ja |
+| **Claude** (Anthropic) | etwas bessere Einordnung | ja |
 | **ChatGPT** (OpenAI) | falls dort schon ein Konto | ja |
 | **Ollama** | lokal, offline, kostenlos | nein |
 | **Nur Regeln** | Stichwortsuche, immer verfügbar | nein |
+
+Wählst du einen Anbieter ausdrücklich, bleibt das eine Vorliebe, kein Ausschluss:
+fällt er aus, springt ein lokales Ollama-Modell ein, bevor die Stichwortsuche
+greift. Die Kette steht im Einstellungen-Tab.
 
 Auf **Automatisch** wird der Reihe nach probiert: Cloud, dann lokal, dann Regeln.
 Fällt etwas aus, rutscht der Einwurf eine Stufe tiefer und landet zur Bestätigung
@@ -147,10 +151,11 @@ Das vorhandene `gemma4:12b-mlx` braucht rund 4 Sekunden pro Einwurf. Denkende
 Modelle werden automatisch auf „nicht denken" gestellt — sonst verbrauchen sie ihr
 Token-Budget mit Grübeln und antworten gar nicht.
 
-**Kosten:** Ein Einwurf sind etwa 800 Token hinein und 150 hinaus. Mit
-`claude-opus-5` (Standard) rund 0,8 Cent, bei 20 Todos pro Woche also unter einem
-Euro im Monat. Günstiger: `claude-sonnet-5` oder `claude-haiku-4-5` in den
-Einstellungen eintragen.
+**Kosten:** Ein Einwurf sind etwa 800 Token hinein und 150 hinaus. Mit dem
+eingestellten `mistral-small-latest` sind das rund **0,02 Cent** — bei 20 Todos
+pro Woche unter 2 Cent im Monat. `mistral-large-latest` kostet gut das Dreifache
+und bringt beim Einsortieren wenig; `claude-opus-5` läge bei etwa 0,8 Cent je
+Einwurf.
 
 ## Wiederkehrende Aufgaben
 

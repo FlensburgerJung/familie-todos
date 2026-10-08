@@ -241,7 +241,13 @@ def provider_chain(config: dict) -> list[str]:
     """Welche Anbieter in welcher Reihenfolge versucht werden."""
     choice = (config.get("provider") or "auto").lower()
     if choice in PROVIDERS:
-        return [choice]
+        # Eine ausdrückliche Wahl ist eine Vorliebe, kein Ausschluss: fällt der
+        # Anbieter aus, ordnet ein lokales Modell immer noch besser ein als
+        # bloße Stichwortsuche.
+        chain = [choice]
+        if choice != "ollama" and ollama.is_available(config):
+            chain.append("ollama")
+        return chain
     if choice == "heuristic":
         return []
     chain = []

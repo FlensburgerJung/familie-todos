@@ -24,7 +24,7 @@ Render in ein Formular ein, und die App liest sie beim Start. Diese App nutzt vi
 |---|---|---|
 | `APP_PASSWORD` | Familienpasswort. Gesetzt = Anmeldung an. | nur online (Pflicht) |
 | `DATABASE_URL` | Adresse der Postgres-Datenbank. Gesetzt = Postgres statt SQLite. | nur online |
-| `ANTHROPIC_API_KEY` | Schlüssel fürs Modell (oder `MISTRAL_…` / `OPENAI_…`) | online, zuhause optional |
+| `MISTRAL_API_KEY` | Schlüssel fürs Modell (oder `ANTHROPIC_…` / `OPENAI_…`) | online, zuhause optional |
 | `PORT` | Setzt Render selbst. | automatisch |
 
 Genau daran erkennt die App, in welcher Betriebsart sie läuft. Am Code ändert
@@ -130,7 +130,7 @@ ausgeschlossen.
    |---|---|
    | `APP_PASSWORD` | dein Familienpasswort |
    | `DATABASE_URL` | die Zeile von Neon |
-   | `ANTHROPIC_API_KEY` | dein Modell-Schlüssel |
+   | `MISTRAL_API_KEY` | dein Mistral-Schlüssel |
 
 5. **Apply / Create** — der erste Build dauert ein paar Minuten
 

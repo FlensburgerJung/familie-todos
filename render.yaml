@@ -15,5 +15,5 @@ services:
         sync: false
       - key: DATABASE_URL      # Verbindungs-URL von Neon
         sync: false
-      - key: ANTHROPIC_API_KEY # optional, je nach gewähltem Anbieter
+      - key: MISTRAL_API_KEY   # Schlüssel des gewählten Anbieters
         sync: false
