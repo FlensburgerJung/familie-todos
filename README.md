@@ -243,6 +243,11 @@ Eintrag landet dann direkt in der Liste statt in der Inbox.
 
 Am Telefon sitzt die Navigation unten, die Eingabe klappt beim Antippen auf.
 
+**Zurück funktioniert wie gewohnt:** Der Zurück-Knopf des Browsers und die
+Zurück-Geste am Telefon gehen eine Ebene in der App zurück, nicht aus ihr
+heraus. Erst wenn man am Start angekommen ist, verlässt der nächste Schritt
+die App.
+
 ### Frei zu vergeben
 
 Auf dem Start steht unter den Personen eine eigene Zeile für alles, was

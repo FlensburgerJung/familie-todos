@@ -825,14 +825,47 @@ function viewOverdue() {
    Eine Übersicht, von der aus man in jede Teilansicht springt: erst was
    drängt, dann wer was hat, dann die Sammlungen ohne Termindruck. */
 
+/* Schritte innerhalb der App im Verlauf des Browsers vermerken.
+
+   Ohne das führt der Zurück-Knopf - und am Telefon die Zurück-Geste - aus der
+   App heraus auf die zuvor besuchte Website, obwohl man nur eine Ebene höher
+   wollte. Jeder Wechsel von Ansicht oder Bereich legt deshalb einen Eintrag
+   an; der Browser gibt ihn beim Zurückgehen zurück, und die App stellt ihn
+   wieder her. Die Adresse bleibt dabei unverändert. */
+function pushStep() {
+  try {
+    history.pushState({ tab: state.tab, focus: state.focus }, '');
+  } catch { /* in manchen eingebetteten Ansichten nicht erlaubt */ }
+}
+
+function rememberStep() {
+  try {
+    history.replaceState({ tab: state.tab, focus: state.focus }, '');
+  } catch { /* egal */ }
+}
+
+function setupHistory() {
+  rememberStep();
+  window.addEventListener('popstate', event => {
+    const schritt = event.state;
+    if (!schritt) return;          // vor der App - der Browser verlässt sie
+    state.tab = schritt.tab || 'start';
+    state.focus = schritt.focus || null;
+    render();
+    window.scrollTo({ top: 0 });
+  });
+}
+
 function openFocus(kind, id, from) {
   state.focus = { kind, id, from };
+  pushStep();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function goHome() {
   state.focus = null;
+  pushStep();
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -1889,8 +1922,10 @@ function renderTabs() {
       'aria-selected': String(state.tab === tab.id),
       'aria-label': tab.text + (count ? ` (${count})` : ''),
       onclick: () => {
+        if (state.tab === tab.id && !state.focus) return;   // schon hier
         state.tab = tab.id;
         state.focus = null;
+        pushStep();
         render();
         window.scrollTo({ top: 0, behavior: 'smooth' });
       },
@@ -2227,6 +2262,7 @@ function showWaking(attempt) {
 (async function start() {
   state.me = readMe();
   setupTheme();
+  setupHistory();
   setupCapture();
   setupFab();
   if ('serviceWorker' in navigator) {
@@ -2261,6 +2297,7 @@ function showWaking(attempt) {
     await flushQueue();
     if (!cached) state.tab = 'start';
     render();
+    rememberStep();
   } catch (error) {
     if (error.status === 401) { showLogin(); return; }
     if (cached) {
