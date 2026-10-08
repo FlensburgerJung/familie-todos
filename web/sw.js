@@ -2,7 +2,7 @@
    API-Antworten werden bewusst nicht gecacht - veraltete Todos wären
    schlimmer als eine ehrliche Fehlermeldung. */
 
-const CACHE = 'familie-todos-v6';
+const CACHE = 'familie-todos-v7';
 const SHELL = ['/', '/index.html', '/style.css', '/app.js', '/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', event => {

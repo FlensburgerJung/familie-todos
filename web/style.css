@@ -1005,3 +1005,42 @@ a.btn { text-decoration: none; display: inline-block; }
   .capture-assign select { min-height: 42px; font-size: 16px; }
   .capture-assign { grid-template-columns: 1fr; gap: 6px; }
 }
+
+/* Pfad und Schnelleingabe */
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+.crumb {
+  border: none;
+  background: none;
+  padding: 4px 2px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--accent);
+  -webkit-tap-highlight-color: transparent;
+}
+.crumb:hover { text-decoration: underline; }
+.crumb.current { color: var(--muted); padding-left: 2px; }
+.crumb-sep { color: var(--border); }
+
+.quick-add {
+  display: flex;
+  gap: 7px;
+  margin-bottom: 14px;
+}
+.quick-add input { flex: 1; min-width: 0; }
+.quick-add .quick-person { flex: 0 0 auto; width: auto; max-width: 42%; }
+.quick-add .btn { flex: none; min-width: 46px; font-size: 19px; line-height: 1; }
+
+@media (max-width: 640px) {
+  .crumbs { font-size: 13.5px; gap: 5px; }
+  .crumb { min-height: 34px; }
+  .quick-add input, .quick-add select { min-height: 44px; }
+  .quick-add .btn { min-height: 44px; min-width: 48px; }
+}

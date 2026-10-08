@@ -217,6 +217,17 @@ angetippt hat.
   „‹ Start" bzw. „‹ Todos" führt zurück. Einstellungen liegen bewusst
   außerhalb, im Tab „Mehr".
 
+### Direkt in einer Liste eintragen
+
+Steht man ohnehin schon in der richtigen Liste — etwa im Einkaufszettel oder
+auf Thilos Wunschzettel — gibt es dort oben ein Feld **Direkt hinzufügen**.
+Der Eintrag wird sofort angelegt, **ohne Sprachmodell**: kein Warten, keine
+Kosten. Der Fokus bleibt im Feld, sodass man mehrere Zeilen hintereinander
+tippen kann.
+
+Das Modell braucht es nur für das Einwerfen auf der Startseite, wo noch
+unklar ist, wohin etwas gehört.
+
 ### Von Hand zuordnen
 
 Unter dem Eingabefeld stehen zwei Auswahlfelder: **Liste** und **Wer**. Bleiben

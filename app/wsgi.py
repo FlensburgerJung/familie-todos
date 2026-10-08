@@ -136,6 +136,49 @@ def _capture(payload: dict) -> dict:
     return {"todo": todo, "engine": engine, "problems": problems, "autoFiled": confident}
 
 
+def _create_todo(payload: dict) -> dict:
+    """Direkt anlegen, ohne Sprachmodell.
+
+    Für den Fall, dass man ohnehin schon in der richtigen Liste steht: dort
+    etwas hinzuzufügen soll weder Geld kosten noch auf eine Antwort warten.
+    """
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise ApiError("Bitte etwas eintragen.")
+
+    list_id = (payload.get("listId") or "").strip()
+    target = db.get_list(list_id) if list_id else None
+    if list_id and not target:
+        raise ApiError("Diese Liste gibt es nicht.", 404)
+
+    assignee = (payload.get("assigneeId") or "").strip()
+    if assignee and not db.get_person(assignee):
+        assignee = ""
+
+    horizon = payload.get("horizon") if payload.get("horizon") in HORIZONS else DEFAULT_HORIZON
+    dated = LIST_KINDS.get((target or {}).get("kind", "tasks"), {}).get("dated", True)
+
+    due = None
+    if dated:
+        due = (clamp_due_date(payload.get("dueDate"), horizon)
+               if payload.get("dueDate") else None)
+
+    return {"todo": db.create_todo({
+        "title": title[:120],
+        "rawInput": title,
+        "listId": list_id or None,
+        "assigneeId": assignee or None,
+        "horizon": horizon,
+        "dueDate": due,
+        "minutes": snap_effort(payload.get("minutes")) if dated else 0,
+        "repeat": payload.get("repeat", "") if dated else "",
+        "priority": "normal",
+        "status": "open",
+        "confidence": 1.0,
+        "engine": "manuell",
+    })}
+
+
 def _confirm(todo_id: str, payload: dict) -> dict:
     todo = db.get_todo(todo_id)
     if not todo:
@@ -254,6 +297,7 @@ ROUTES: list[tuple[str, str, object]] = [
     ("GET", r"^/api/state$", lambda m, p: _state()),
     ("GET", r"^/api/health$", lambda m, p: {"ok": True, "backend": store.backend()}),
     ("POST", r"^/api/capture$", lambda m, p: _capture(p)),
+    ("POST", r"^/api/todos$", lambda m, p: _create_todo(p)),
     ("POST", r"^/api/todos/([\w-]+)/confirm$", lambda m, p: _confirm(m.group(1), p)),
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
     ("DELETE", r"^/api/todos/([\w-]+)$",

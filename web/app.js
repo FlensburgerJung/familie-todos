@@ -5,7 +5,8 @@ const state = {
   todos: [], lists: [], people: [], settings: {}, keys: {},
   horizons: {}, repeats: {}, efforts: [], listKinds: {},
   engineChain: [], deployment: {},
-  stale: false,   // zeigt gerade den gepufferten Stand
+  stale: false,          // zeigt gerade den gepufferten Stand
+  engineProblem: null,   // warum zuletzt kein Modell antwortete
   tab: 'start',
   horizon: 'soon',
   busy: false,
@@ -69,6 +70,15 @@ function formatDue(value) {
   if (days < 7) return `in ${days} Tagen`;
   const date = parseDate(value);
   return date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+}
+
+const ENGINE_NAMES = {
+  mistral: 'Mistral', anthropic: 'Claude', openai: 'ChatGPT',
+  ollama: 'lokales Modell', heuristic: 'Stichwortsuche', manuell: 'von Hand',
+};
+
+function engineName(engine) {
+  return ENGINE_NAMES[engine] || engine || '—';
 }
 
 function formatEffort(minutes) {
@@ -478,7 +488,7 @@ function reviewCard(todo) {
       el('span', { class: 'spacer' }),
       el('span', {
         class: 'capture-hint',
-        text: `${Math.round((todo.confidence || 0) * 100)} % sicher · ${todo.engine}`,
+        text: `${Math.round((todo.confidence || 0) * 100)} % sicher · ${engineName(todo.engine)}`,
       }),
       deleteBtn,
     ]),
@@ -587,6 +597,79 @@ function openFocus(kind, id, from) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function goHome() {
+  state.focus = null;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* Pfad als Brotkrumen: zeigt, wo man ist, und lässt jede Stufe anspringen.
+   Das übliche Muster für geschachtelte Listen - verlässlicher als ein
+   einzelner Zurück-Knopf, weil der Weg nach Hause immer sichtbar bleibt. */
+function breadcrumb(trail) {
+  const parts = [];
+  trail.forEach((step, index) => {
+    const last = index === trail.length - 1;
+    if (index > 0) parts.push(el('span', { class: 'crumb-sep', text: '›' }));
+    parts.push(last
+      ? el('span', { class: 'crumb current', text: step.label })
+      : el('button', { class: 'crumb', type: 'button', text: step.label,
+                       onclick: step.go }));
+  });
+  return el('nav', { class: 'crumbs', 'aria-label': 'Pfad' }, parts);
+}
+
+/* Direkt in dieser Liste anlegen - ohne Sprachmodell, ohne Wartezeit.
+   Wer schon in der richtigen Liste steht, soll nicht den Umweg über die
+   Einordnung gehen müssen; das kostet sonst bei jedem Eintrag Geld. */
+function quickAdd(listId) {
+  const list = listById(listId);
+  const dated = !list || list.kind === 'tasks' || list.kind === 'appointments';
+
+  const input = el('input', {
+    type: 'text', id: 'quick-add-input', autocomplete: 'off',
+    placeholder: dated ? 'Direkt hinzufügen …' : 'Auf die Liste setzen …',
+  });
+
+  const personSelect = dated && state.people.length
+    ? el('select', { class: 'quick-person' }, [
+        el('option', { value: '', text: '🙋 wer?' }),
+        ...state.people.map(person => el('option', {
+          value: person.id, text: `${person.emoji} ${person.name}`,
+        })),
+      ])
+    : null;
+
+  const submit = async (event) => {
+    event.preventDefault();
+    const title = input.value.trim();
+    if (!title) return;
+    input.disabled = true;
+    try {
+      await api('/api/todos', 'POST', {
+        title, listId,
+        assigneeId: personSelect ? personSelect.value : '',
+        horizon: state.horizon,
+      });
+      input.value = '';
+      await refresh();
+      // Nach dem Neuzeichnen weitertippen können - beim Einkaufszettel
+      // schreibt man selten nur eine Zeile.
+      const again = document.getElementById('quick-add-input');
+      if (again) again.focus();
+    } catch (error) {
+      toast(error.message, true);
+      input.disabled = false;
+    }
+  };
+
+  return el('form', { class: 'quick-add', onsubmit: submit }, [
+    input,
+    personSelect,
+    el('button', { class: 'btn btn-primary btn-sm', type: 'submit', text: '+' }),
+  ]);
+}
+
 function tile(label, value, detail, tone, onclick) {
   return el('button', {
     class: 'tile tile-action' + (tone ? ' ' + tone : ''),
@@ -606,16 +689,16 @@ function viewFocus() {
   if (kind === 'area') {
     const area = AREAS.find(a => a.id === id);
     const lists = areaLists(id);
-    const back = el('button', {
-      class: 'btn btn-ghost btn-sm back', type: 'button', text: '‹ Start',
-      onclick: () => { state.focus = null; render(); },
-    });
+    const crumbs = breadcrumb([
+      { label: '🏠 Start', go: goHome },
+      { label: area.name },
+    ]);
 
     if (id === 'repeating') {
       const todos = repeatingTodos();
       return el('div', {}, [
         el('div', { class: 'focus-head' }, [
-          back,
+          crumbs,
           el('h2', { text: `${area.emoji} ${area.name}` }),
           el('p', { class: 'hint',
             text: 'Nach dem Abhaken entsteht jeweils der nächste Termin.' }),
@@ -630,7 +713,7 @@ function viewFocus() {
 
     return el('div', {}, [
       el('div', { class: 'focus-head' }, [
-        back,
+        crumbs,
         el('h2', { text: `${area.emoji} ${area.name}` }),
         el('p', { class: 'hint', text: area.hint }),
       ]),
@@ -666,30 +749,28 @@ function viewFocus() {
     todos = spec.get();
   }
 
-  // Aus einer Liste führt der Weg zurück in ihre Kategorie, nicht zum Start.
+  // Der Weg zurück führt über die Kategorie, aus der man kam.
   const parent = state.focus.from ? AREAS.find(a => a.id === state.focus.from) : null;
-  const back = el('button', {
-    class: 'btn btn-ghost btn-sm back', type: 'button',
-    text: parent ? `‹ ${parent.name}` : '‹ Start',
-    onclick: () => {
-      if (parent) openFocus('area', parent.id);
-      else { state.focus = null; render(); }
-    },
-  });
+  const trail = [{ label: '🏠 Start', go: goHome }];
+  if (parent) trail.push({ label: parent.name, go: () => openFocus('area', parent.id) });
+  trail.push({ label: title.replace(/^\S+\s/, '') });
 
   const body = todos.length
     ? el('div', {}, kind === 'inbox'
         ? todos.map(reviewCard)
         : todos.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })))
     : el('div', { class: 'empty' }, [
-        el('strong', { text: 'Nichts hier' }), 'Diese Ansicht ist gerade leer.']);
+        el('strong', { text: 'Noch nichts hier' }),
+        kind === 'list' ? 'Trag oben direkt etwas ein.' : 'Diese Ansicht ist gerade leer.']);
 
   return el('div', {}, [
     el('div', { class: 'focus-head' }, [
-      back,
+      breadcrumb(trail),
       el('h2', { text: title }),
       hint ? el('p', { class: 'hint', text: hint }) : null,
     ]),
+    // Nur in einer konkreten Liste: dort weiß die App, wohin der Eintrag soll.
+    kind === 'list' ? quickAdd(id) : null,
     body,
   ]);
 }
@@ -1245,6 +1326,10 @@ function viewSettings() {
   view.append(el('section', { class: 'section' }, [
     el('h2', { text: 'Einordnung' }),
     el('p', { class: 'hint', text: `Aktuelle Reihenfolge: ${state.engineChain.join(' → ')}` }),
+    state.engineProblem
+      ? el('div', { class: 'question', style: 'margin:0 0 12px' },
+          `⚠️ Zuletzt hat kein Modell geantwortet: ${state.engineProblem}`)
+      : null,
     el('label', { class: 'field' }, [el('span', { text: 'Anbieter' }), providerSelect]),
     el('div', { class: 'fields' }, [
       el('label', { class: 'field' }, [
@@ -1483,7 +1568,9 @@ function renderBadge() {
     ? `${queued} wartet · ${names[engine] || engine}`
     : names[engine] || engine;
   badge.className = 'engine-badge' + (engine === 'heuristic' || queued ? ' offline' : '');
-  badge.title = `Einordnung: ${state.engineChain.join(' → ')}`;
+  badge.title = state.engineProblem
+    ? `Kein Modell erreichbar: ${state.engineProblem}`
+    : `Einordnung: ${state.engineChain.join(' → ')}`;
 }
 
 function render() {
@@ -1547,6 +1634,15 @@ async function submitCapture(event) {
     }
     if (result.problems && result.problems.length) {
       console.warn('Anbieter-Probleme:', result.problems);
+    }
+    // Ist die Einordnung auf die Stichwortsuche zurückgefallen, soll das
+    // auffallen - sonst wundert man sich still über schlechte Treffer.
+    if (result.engine === 'heuristic' && result.problems && result.problems.length) {
+      state.engineProblem = result.problems[0];
+      renderBadge();
+      toast('Kein Modell erreichbar — nur Stichwortsuche. Details unter „Mehr".', true);
+    } else if (state.engineProblem) {
+      state.engineProblem = null;
     }
     await refresh();
   } catch (error) {
