@@ -86,6 +86,17 @@ def _capture(payload: dict) -> dict:
     cfg = config.load()
     lists, people = db.get_lists(), db.get_people()
 
+    # Ein Knopf wie „Wunsch" sagt die Art, nicht die Liste. Dann kommen nur
+    # Listen dieser Art in Frage - und gibt es davon nur eine, erübrigt sich
+    # der Modellaufruf ganz.
+    kind_hint = (payload.get("kind") or "").strip()
+    if kind_hint in LIST_KINDS:
+        passende = [entry for entry in lists if entry.get("kind") == kind_hint]
+        if len(passende) == 1:
+            payload = {**payload, "listId": passende[0]["id"]}
+        elif passende:
+            lists = passende
+
     # Eine ausdrückliche Wahl beim Einwerfen schlägt die Einordnung. Dann muss
     # das Modell nur noch Titel, Dauer und Termin herausarbeiten.
     chosen_list = (payload.get("listId") or "").strip()
@@ -94,6 +105,16 @@ def _capture(payload: dict) -> dict:
         chosen_list = ""
     if chosen_person and not any(person["id"] == chosen_person for person in people):
         chosen_person = ""
+
+    # Steht die Liste schon fest und ist es eine Merkliste, gibt es nichts zu
+    # entscheiden: Titel ist der Text, Termin und Dauer entfallen ohnehin.
+    target_now = db.get_list(chosen_list) if chosen_list else None
+    if target_now and not LIST_KINDS.get(target_now.get("kind", "tasks"), {}).get("dated", True):
+        todo = db.create_todo({
+            "title": text[:120], "rawInput": text, "listId": chosen_list,
+            "status": "open", "confidence": 1.0, "engine": "manuell",
+        })
+        return {"todo": todo, "engine": "manuell", "problems": [], "autoFiled": True}
 
     result, engine, problems = classify.classify(text, horizon, lists, people, cfg)
 
@@ -284,6 +305,8 @@ def _patch_todo(todo_id: str, payload: dict) -> dict:
     for key in ("title", "note", "listId", "assigneeId", "priority", "status", "tags"):
         if key in payload:
             fields[key] = payload[key]
+    if payload.get("doneBy") and db.get_person(payload["doneBy"]):
+        fields["doneBy"] = payload["doneBy"]
     if payload.get("horizon") in HORIZONS:
         fields["horizon"] = payload["horizon"]
     if payload.get("repeat") in REPEATS:
@@ -447,6 +470,13 @@ def _handle(request: Request) -> Response:
 
     # Alles Weitere braucht die Tabellen.
     ensure_booted()
+
+    if path == "/api/people-public" and request.method == "GET":
+        # Nur Name und Emoji, damit die Anmeldemaske die Auswahl zeigen kann.
+        ensure_booted()
+        return json_response({"people": [
+            {"id": p["id"], "name": p["name"], "emoji": p["emoji"]}
+            for p in db.get_people()]})
 
     if path == "/api/session" and request.method == "GET":
         return json_response({"authEnabled": auth.enabled(),

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS lists (
     description TEXT NOT NULL DEFAULT '',
     keywords    TEXT NOT NULL DEFAULT '[]',
     kind        TEXT NOT NULL DEFAULT 'tasks',
+    in_overview INTEGER NOT NULL DEFAULT 1,
     sort        INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
 );
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS todos (
     repeat_rule   TEXT NOT NULL DEFAULT '',
     minutes       INTEGER NOT NULL DEFAULT 0,
     created_from  TEXT NOT NULL DEFAULT '',
+    done_by       TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
     done_at       TEXT
 );
@@ -119,6 +121,8 @@ LATER_COLUMNS = [
     ("lists", "kind", "TEXT NOT NULL DEFAULT 'tasks'"),
     ("people", "role", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "created_from", "TEXT NOT NULL DEFAULT ''"),
+    ("lists", "in_overview", "INTEGER NOT NULL DEFAULT 1"),
+    ("todos", "done_by", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -156,6 +160,13 @@ def _migrate_data() -> None:
         text = f"{row['id']} {row['name']}".lower()
         if "wunsch" in text or "geschenk" in text:
             store.execute("UPDATE lists SET kind='wishes' WHERE id=?", (row["id"],))
+
+    # Sammellisten fluten die Gesamtuebersicht mit Einzelposten: ein
+    # Einkaufszettel hat zwanzig Zeilen, die dort nichts zu suchen haben.
+    store.execute(
+        "UPDATE lists SET in_overview=0 WHERE kind IN ('wishes', 'media')")
+    store.execute(
+        "UPDATE lists SET in_overview=0 WHERE id='einkauf'")
 
     # Eine Terminliste, falls noch keine da ist.
     if not store.one("SELECT 1 AS x FROM lists WHERE kind='appointments' LIMIT 1"):
@@ -219,7 +230,9 @@ def _list_row(row: dict) -> dict:
     return {
         "id": row["id"], "name": row["name"], "emoji": row["emoji"],
         "description": row["description"], "keywords": json.loads(row["keywords"] or "[]"),
-        "kind": row.get("kind") or "tasks", "sort": row["sort"],
+        "kind": row.get("kind") or "tasks",
+        "inOverview": bool(row["in_overview"]) if row.get("in_overview") is not None else True,
+        "sort": row["sort"],
     }
 
 
@@ -255,6 +268,9 @@ def update_list(list_id: str, fields: dict) -> dict | None:
     for key in {"name", "emoji", "description", "sort", "kind"} & fields.keys():
         sets.append(f"{key}=?")
         values.append(fields[key])
+    if "inOverview" in fields:
+        sets.append("in_overview=?")
+        values.append(1 if fields["inOverview"] else 0)
     if "keywords" in fields:
         sets.append("keywords=?")
         values.append(json.dumps(fields["keywords"], ensure_ascii=False))
@@ -340,6 +356,7 @@ def _todo_row(row: dict) -> dict:
         "suggestion": json.loads(row["suggestion"] or "{}"),
         "createdAt": row["created_at"], "doneAt": row["done_at"],
         "createdFrom": row.get("created_from") or "",
+        "doneBy": row.get("done_by") or "",
     }
 
 
@@ -400,9 +417,14 @@ def update_todo(todo_id: str, fields: dict) -> dict | None:
     if fields.get("status") == "done":
         sets.append("done_at=?")
         values.append(now_ts())
+        # Wer abgehakt hat, ist verlaesslicher als wem es zugewiesen war.
+        sets.append("done_by=?")
+        values.append(str(fields.get("doneBy") or "")[:60])
     elif "status" in fields:
         sets.append("done_at=?")
         values.append(None)
+        sets.append("done_by=?")
+        values.append("")
     if not sets:
         return get_todo(todo_id)
     values.append(todo_id)

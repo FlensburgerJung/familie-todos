@@ -5,6 +5,7 @@ const state = {
   todos: [], lists: [], people: [], settings: {}, keys: {},
   horizons: {}, repeats: {}, efforts: [], listKinds: {},
   recentlyDone: [], engineChain: [], deployment: {},
+  me: '',                // wer gerade an diesem Geraet arbeitet
   stale: false,          // zeigt gerade den gepufferten Stand
   engineProblem: null,   // warum zuletzt kein Modell antwortete
   tab: 'start',
@@ -19,6 +20,22 @@ const state = {
 const QUEUE_KEY = 'familie-todos-queue';
 const CACHE_KEY = 'familie-todos-state';
 const SHARED_KEY = 'familie-todos-shared';
+const ME_KEY = 'familie-todos-me';
+
+/* Wer sitzt gerade vor dem Geraet? Wird pro Geraet gemerkt - Simones Handy
+   ist Simone. Dadurch laesst sich festhalten, wer etwas erledigt hat, ohne
+   dass jemand drei Passwoerter braucht. */
+function readMe() {
+  try { return localStorage.getItem(ME_KEY) || ''; } catch { return ''; }
+}
+
+function setMe(id) {
+  try {
+    if (id) localStorage.setItem(ME_KEY, id);
+    else localStorage.removeItem(ME_KEY);
+  } catch { /* egal */ }
+  state.me = id || '';
+}
 
 /* Android kann Text aus jeder App hierher teilen (share_target im Manifest).
    Der Text wird sofort weggeschrieben: Zwischen Teilen und fertig geladener
@@ -204,6 +221,8 @@ function showLogin(message) {
     type: 'password', autocomplete: 'current-password',
     placeholder: 'Familienpasswort', autofocus: true,
   });
+  // Wer sich anmeldet, sagt gleich wer er ist - das Passwort ist gemeinsam.
+  const whoWrap = el('div', { class: 'login-who' });
   const error = el('div', { class: 'login-error', text: message || '' });
   const button = el('button', { class: 'btn btn-primary', type: 'submit', text: 'Anmelden' });
 
@@ -215,6 +234,8 @@ function showLogin(message) {
       button.textContent = 'Moment…';
       try {
         await api('/api/login', 'POST', { password: input.value });
+        const gewaehlt = whoWrap.querySelector('select');
+        if (gewaehlt && gewaehlt.value) setMe(gewaehlt.value);
         location.reload();
       } catch (err) {
         error.textContent = err.message;
@@ -227,10 +248,21 @@ function showLogin(message) {
   }, [
     el('h1', { text: 'Familie ToDos' }),
     el('p', { text: 'Bitte einmal anmelden, danach bleibt das Gerät angemeldet.' }),
-    input, error, button,
+    input, whoWrap, error, button,
   ]);
 
   wrap.append(form);
+
+  // Die Namensliste braucht die Personen - die holen wir nebenbei.
+  api('/api/people-public').then(data => {
+    if (!data.people || !data.people.length) return;
+    whoWrap.append(el('select', { 'aria-label': 'Wer bist du?' }, [
+      el('option', { value: '', text: 'Wer bist du? (später wählbar)' }),
+      ...data.people.map(p => el('option', {
+        value: p.id, text: `${p.emoji} ${p.name}`, selected: p.id === readMe(),
+      })),
+    ]));
+  }).catch(() => { /* ohne Namensliste geht es auch */ });
 }
 
 /* ---------- Offline-Warteschlange ---------- */
@@ -384,7 +416,8 @@ function todoCard(todo, { overdue = false } = {}) {
     onclick: async () => {
       check.disabled = true;
       try {
-        const result = await api(`/api/todos/${todo.id}`, 'PATCH', { status: 'done' });
+        const result = await api(`/api/todos/${todo.id}`, 'PATCH',
+                                 { status: 'done', doneBy: state.me });
         toast(result.next
           ? `Erledigt. Wieder fällig ${formatDue(result.next.dueDate)}.`
           : 'Erledigt. 🎉', false,
@@ -612,16 +645,34 @@ function viewInbox() {
 }
 
 function viewLists() {
-  const items = openTodos();
+  // Nur Listen, die hier erscheinen sollen. Ein Einkaufszettel oder ein
+  // Wunschzettel gehoert nicht Posten fuer Posten in die Gesamtuebersicht -
+  // dort will man Aufgaben sehen, nicht Milch und Brot.
+  const sichtbar = new Set(state.lists.filter(l => l.inOverview !== false)
+                                      .map(l => l.id));
+  const items = openTodos().filter(t => !t.listId || sichtbar.has(t.listId));
   if (!items.length) {
     return el('div', { class: 'empty' }, [
       el('strong', { text: 'Alles abgearbeitet' }), 'Nichts Offenes in den Listen.',
     ]);
   }
   const groups = el('div', {});
-  for (const list of state.lists) {
+  let letzteArt = null;
+  for (const list of state.lists.slice()
+      .filter(l => l.inOverview !== false)
+      .sort((a, b) => {
+        const rang = { tasks: 0, appointments: 1, wishes: 2, media: 3 };
+        return (rang[a.kind] ?? 9) - (rang[b.kind] ?? 9) || a.sort - b.sort;
+      })) {
     const listItems = items.filter(t => t.listId === list.id);
     if (!listItems.length) continue;
+    // Trennlinie, sobald eine neue Art beginnt.
+    if (letzteArt !== null && list.kind !== letzteArt) {
+      groups.append(el('div', { class: 'kind-divider' },
+        el('span', { text: { wishes: 'Wunschzettel', media: 'Merken',
+                             appointments: 'Termine' }[list.kind] || 'Weiteres' })));
+    }
+    letzteArt = list.kind;
     groups.append(el('section', { class: 'list-group' }, [
       el('div', { class: 'list-head' }, [
         `${list.emoji} ${list.name}`,
@@ -952,7 +1003,7 @@ function viewStart() {
   /* Wer macht was. */
   const unassigned = unassignedTodos();
   view.append(el('section', { class: 'home-section' }, [
-    el('h2', { text: 'Wer macht was' }),
+    el('h2', { text: 'Wer hat was zu tun' }),
     el('div', { class: 'rows' }, [
       ...state.people.map(person => {
         const todos = personTodos(person.id);
@@ -1217,10 +1268,14 @@ function viewStats() {
 
   view.append(el('section', { class: 'section' }, [
     el('h2', { text: 'Geschafft' }),
-    el('p', { class: 'hint', text: state.statsRange
-      ? `Erledigt in den letzten ${state.statsRange} Tagen.`
-      : 'Erledigt, seit es die App gibt.' }),
-    barChart(groupStats(done, t => t.assigneeId), state.statsMeasure, nameOfPerson),
+    el('p', { class: 'hint', text: (state.statsRange
+      ? `Erledigt in den letzten ${state.statsRange} Tagen. `
+      : 'Erledigt, seit es die App gibt. ')
+      + 'Gezählt wird, wer abgehakt hat.' }),
+    // Wer abgehakt hat zählt; fehlt die Angabe (älterer Eintrag), gilt die
+    // Zuweisung als Näherung.
+    barChart(groupStats(done, t => t.doneBy || t.assigneeId),
+             state.statsMeasure, nameOfPerson),
   ]));
 
   view.append(el('section', { class: 'section' }, [
@@ -1297,13 +1352,16 @@ function listEditor(list) {
     ([value, label]) => el('option', {
       value, text: label, selected: (list.kind || 'tasks') === value,
     })));
+  const overview = el('input', {
+    type: 'checkbox', style: 'width:auto', checked: list.inOverview !== false,
+  });
   const save = el('button', {
     class: 'btn btn-sm', text: 'Sichern',
     onclick: async () => {
       try {
         await api(`/api/lists/${list.id}`, 'PATCH', {
           name: name.value, emoji: emoji.value, description: description.value,
-          kind: kindSelect.value,
+          kind: kindSelect.value, inOverview: overview.checked,
           keywords: keywords.value.split(',').map(s => s.trim()).filter(Boolean),
         });
         toast('Gespeichert.');
@@ -1332,6 +1390,8 @@ function listEditor(list) {
     el('div', { class: 'row' }, [el('div', { class: 'grow' }, keywords)]),
     el('div', { class: 'row' }, [
       el('label', { class: 'field grow' }, [el('span', { text: 'Art' }), kindSelect]),
+      el('label', { class: 'field', style: 'flex:0 0 auto' }, [
+        el('span', { text: 'im Tab „Listen"' }), overview]),
     ]),
     el('div', { class: 'row' }, [save, el('span', { style: 'flex:1' }), remove]),
   ]);
@@ -1565,7 +1625,11 @@ const TABS = [
   { id: 'start', text: 'Start', short: 'Start', icon: '🏠',
     counter: inboxTodos, tone: 'warn' },
   { id: 'lists', text: 'Listen', short: 'Listen', icon: '🗂',
-    counter: openTodos, tone: null },
+    counter: () => {
+      const sichtbar = new Set(state.lists.filter(l => l.inOverview !== false)
+                                          .map(l => l.id));
+      return openTodos().filter(t => !t.listId || sichtbar.has(t.listId));
+    }, tone: null },
   { id: 'week', text: 'Woche', short: 'Woche', icon: '📅',
     counter: () => overdueTodos().filter(isTask), tone: 'alert' },
   { id: 'stats', text: 'Bilanz', short: 'Bilanz', icon: '📊',
@@ -1636,11 +1700,20 @@ function renderAssign() {
 
   listSelect.textContent = '';
   listSelect.append(el('option', { value: '', text: '📥 Liste: automatisch' }));
-  for (const list of state.lists) {
-    listSelect.append(el('option', {
-      value: list.id, text: `${list.emoji} ${list.name}`,
-      selected: list.id === keepList,
-    }));
+  // Nach Art gruppiert statt alles in einer langen Reihe - der Browser setzt
+  // dabei selbst eine Trennlinie mit Überschrift.
+  for (const [kind, titel] of [['tasks', 'Aufgaben'], ['appointments', 'Termine'],
+                               ['wishes', 'Wunschzettel'], ['media', 'Merken']]) {
+    const darin = state.lists.filter(l => l.kind === kind);
+    if (!darin.length) continue;
+    const gruppe = el('optgroup', { label: titel });
+    for (const list of darin) {
+      gruppe.append(el('option', {
+        value: list.id, text: `${list.emoji} ${list.name}`,
+        selected: list.id === keepList,
+      }));
+    }
+    listSelect.append(gruppe);
   }
 
   personSelect.textContent = '';
@@ -1651,6 +1724,44 @@ function renderAssign() {
       selected: person.id === keepPerson,
     }));
   }
+}
+
+/* Wer gerade arbeitet - antippbar zum Wechseln. */
+function renderMe() {
+  const slot = document.getElementById('me-badge');
+  if (!slot) return;
+  slot.textContent = '';
+  if (!state.people.length) { slot.hidden = true; return; }
+  slot.hidden = false;
+
+  const person = personById(state.me);
+  slot.append(el('button', {
+    class: 'me-badge' + (person ? '' : ' unset'), type: 'button',
+    title: person ? `Angemeldet als ${person.name} — tippen zum Wechseln`
+                  : 'Wer bist du? Tippen zum Auswählen',
+    onclick: chooseMe,
+  }, person ? `${person.emoji} ${person.name}` : '🙋 Wer bist du?'));
+}
+
+function chooseMe() {
+  const view = document.getElementById('view');
+  if (!view) return;
+  const box = el('div', { class: 'card me-picker' }, [
+    el('h2', { text: 'Wer arbeitet an diesem Gerät?', style: 'font-size:16px;margin:0 0 4px' }),
+    el('p', { class: 'hint', text: 'Wird nur hier gemerkt und hält fest, wer etwas erledigt.' }),
+    el('div', { class: 'rows', style: 'margin-top:12px' },
+      state.people.map(person => el('button', {
+        class: 'row-link' + (person.id === state.me ? ' free has' : ''), type: 'button',
+        onclick: () => { setMe(person.id); render(); toast(`Hallo, ${person.name}.`); },
+      }, [
+        el('span', { class: 'row-emoji', text: person.emoji }),
+        el('span', { class: 'row-name', text: person.name }),
+        person.id === state.me ? el('span', { class: 'row-meta', text: 'aktuell' }) : null,
+      ]))),
+  ]);
+  view.textContent = '';
+  view.append(box);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function renderBadge() {
@@ -1683,6 +1794,7 @@ function render() {
   renderTabs();
   renderHorizons();
   renderAssign();
+  renderMe();
   renderBadge();
   const view = document.getElementById('view');
   view.textContent = '';
@@ -1698,8 +1810,8 @@ function render() {
 
 /* ---------- Eingabe ---------- */
 
-async function submitCapture(event) {
-  event.preventDefault();
+async function submitCapture(event, kindHint) {
+  if (event) event.preventDefault();
   if (state.busy) return;
   const textarea = document.getElementById('capture-text');
   const text = textarea.value.trim();
@@ -1719,6 +1831,7 @@ async function submitCapture(event) {
     horizon: state.horizon,
     listId: listSelect ? listSelect.value : '',
     assigneeId: personSelect ? personSelect.value : '',
+    kind: kindHint || '',
   };
   try {
     const chosenList = payload.listId;
@@ -1847,6 +1960,10 @@ function setupFab() {
 /* ---------- Start ---------- */
 
 document.getElementById('capture-form').addEventListener('submit', submitCapture);
+for (const [id, kind] of [['capture-wish', 'wishes'], ['capture-media', 'media']]) {
+  const button = document.getElementById(id);
+  if (button) button.addEventListener('click', () => submitCapture(null, kind));
+}
 
 document.getElementById('capture-text').addEventListener('keydown', event => {
   // Enter sendet, Shift+Enter macht einen Zeilenumbruch.
@@ -1871,6 +1988,7 @@ function showWaking(attempt) {
 }
 
 (async function start() {
+  state.me = readMe();
   setupCapture();
   setupFab();
   if ('serviceWorker' in navigator) {

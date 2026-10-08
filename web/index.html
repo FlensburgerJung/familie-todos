@@ -16,7 +16,10 @@
   <div class="wrap">
     <header>
       <h1>Familie ToDos</h1>
-      <span class="engine-badge" id="engine-badge">…</span>
+      <span class="head-badges">
+        <span id="me-badge"></span>
+        <span class="engine-badge" id="engine-badge">…</span>
+      </span>
     </header>
 
     <form class="capture" id="capture-form">
@@ -29,7 +32,13 @@
       </div>
       <div class="capture-row">
         <span class="capture-hint" id="capture-hint">Wird automatisch einsortiert.</span>
-        <button type="submit" class="btn btn-primary" id="capture-submit">Rein damit</button>
+        <div class="capture-buttons">
+          <button type="button" class="btn btn-sm capture-kind" id="capture-wish"
+                  title="Direkt auf einen Wunschzettel">🎁 Wunsch</button>
+          <button type="button" class="btn btn-sm capture-kind" id="capture-media"
+                  title="Buch, Film, Podcast oder Artikel zum Merken">🎬 Merken</button>
+          <button type="submit" class="btn btn-primary" id="capture-submit">Rein damit</button>
+        </div>
       </div>
     </form>
 

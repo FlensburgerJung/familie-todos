@@ -13,7 +13,7 @@ from socketserver import ThreadingMixIn
 from wsgiref.simple_server import WSGIRequestHandler, WSGIServer, make_server
 
 from . import auth, classify, config, db, store
-from .wsgi import application
+from .wsgi import application, ensure_booted
 
 
 class ThreadingWSGIServer(ThreadingMixIn, WSGIServer):
@@ -48,6 +48,12 @@ def main() -> None:
     parser.add_argument("--host", default=os.environ.get("HOST", "0.0.0.0"),
                         help="0.0.0.0 = auch von Handys im WLAN erreichbar")
     args = parser.parse_args()
+
+    # Der lokale Start darf auf die Datenbank warten - anders als beim Hoster,
+    # wo ein blockierter Start bedeutet, dass der Port nie aufgeht. Ohne das
+    # hier scheitert der erste Start mit einer frischen Datei an fehlenden
+    # Tabellen.
+    ensure_booted()
 
     cfg = config.load()
     chain = classify.provider_chain(cfg) + ["heuristic"]

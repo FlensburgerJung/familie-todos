@@ -1094,3 +1094,59 @@ a.btn { text-decoration: none; display: inline-block; }
   -webkit-tap-highlight-color: transparent;
 }
 .recent-link:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Knöpfe für die Art und Trennlinien zwischen Listenarten */
+
+.capture-buttons { display: flex; gap: 6px; align-items: center; }
+.capture-kind {
+  background: none;
+  border-color: var(--border);
+  color: var(--muted);
+  font-size: 13px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+.capture-kind:hover { border-color: var(--accent); color: var(--accent); }
+
+.kind-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 26px 2px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.kind-divider::before, .kind-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+@media (max-width: 640px) {
+  .capture-row { flex-wrap: wrap; }
+  .capture-buttons { width: 100%; justify-content: space-between; gap: 5px; }
+  .capture-kind { flex: 1; font-size: 12.5px; padding: 8px 4px; min-height: 42px; }
+  #capture-submit { flex: 1.2; }
+  .capture-hint { flex-basis: 100%; margin-bottom: 2px; }
+}
+
+/* Wer arbeitet gerade */
+.head-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.me-badge {
+  font-size: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 99px;
+  padding: 3px 10px;
+  white-space: nowrap;
+  font-weight: 600;
+  -webkit-tap-highlight-color: transparent;
+}
+.me-badge.unset { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.me-picker { margin-bottom: 16px; }
+.login-who { margin-bottom: 10px; }
+.login-who select { text-align: center; }
