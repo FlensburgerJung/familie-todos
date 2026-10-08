@@ -168,6 +168,7 @@ SEED_AREAS = [
     ("shopping", "Einkauf", "🛒", "Täglicher Bedarf, Baumarkt, persönlich …", 0),
     ("appointments", "Termine", "📅", "Zu vereinbaren und was feststeht", 1),
     ("activities", "Unternehmungen", "🎡", "Ausflüge, Essen gehen, Kultur", 0),
+    ("meals", "Essensideen", "🍲", "Gerichte, die wir mal kochen wollen", 0),
     ("postits", "PostIt", "📌", "Notizen und Merkzettel", 0),
     ("wishes", "Wunschzettel", "🎁", "Geschenkideen je Person", 0),
     ("media", "Merken", "🎬", "Bücher, Filme, Podcasts", 0),
@@ -175,6 +176,14 @@ SEED_AREAS = [
 
 # Listen, die beim ersten Mal in einem neuen Bereich entstehen
 SEED_AREA_LISTS = {
+    "meals": [
+        ("essen-alltag", "Schnell & alltags", "⏱",
+         "Unter 30 Minuten, für normale Abende"),
+        ("essen-gaeste", "Für Gäste", "🕯",
+         "Wenn Besuch kommt oder es etwas Besonderes sein soll"),
+        ("essen-ausprobieren", "Mal ausprobieren", "🧪",
+         "Rezepte, die wir noch nicht gekocht haben"),
+    ],
     "postits": [
         ("notizen", "Notizen", "📌", "Was man sich kurz merken will"),
     ],

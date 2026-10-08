@@ -265,6 +265,7 @@ Listen. Mitgeliefert werden:
 | **🛒 Einkauf** | Täglicher Bedarf, Baumarkt, Elektro, je Person | nein |
 | **📅 Termine** | zu vereinbaren und was feststeht | ja |
 | **🎡 Unternehmungen** | Ausflüge, Essen gehen, Kultur | nein |
+| **🍲 Essensideen** | Schnell & alltags, Für Gäste, Mal ausprobieren | nein |
 | **📌 PostIt** | Notizen und Merkzettel | nur ein Tag |
 | **🎁 Wunschzettel** | je Person | nein |
 | **🎬 Merken** | Bücher, Filme, Podcasts | nein |
