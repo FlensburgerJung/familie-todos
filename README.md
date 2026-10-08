@@ -284,6 +284,18 @@ keine Dauer, erscheinen nicht unter „überfällig", nicht im Tab „Listen", n
 bei „frei zu vergeben" und nicht im Kalender. Ein Buchtipp oder „mal an die
 Ostsee fahren" soll einen schließlich nicht als überfällig anmahnen.
 
+### Rezept zu einer Essensidee
+
+Unter jedem Eintrag in **🍲 Essensideen** steht ein Knopf **Rezept**. Dort gibt
+man die Personenzahl an und optional Wünsche („vegetarisch", „kalorienarm",
+„schnell") — das Modell schlägt dann ein Rezept mit Zutaten, Schritten und
+Zeitangabe vor. Es wird am Eintrag gespeichert und ist beim nächsten Öffnen
+wieder da; mit *Neues Rezept* lässt es sich ersetzen.
+
+Bewusst ein eigener Knopf und nicht automatisch: Ein Rezept will man, wenn man
+kochen will — nicht zu jeder Idee, die einem einfällt. Jeder Aufruf kostet
+schließlich ein paar Zehntelcent.
+
 ### Notizen an Todos
 
 Die Einordnung schreibt häufig einen kurzen Hinweis dazu — was offen bleibt,

@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS todos (
     created_from  TEXT NOT NULL DEFAULT '',
     done_by       TEXT NOT NULL DEFAULT '',
     note_source   TEXT NOT NULL DEFAULT '',
+    detail        TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
     done_at       TEXT
 );
@@ -135,6 +136,7 @@ LATER_COLUMNS = [
     ("lists", "in_overview", "INTEGER NOT NULL DEFAULT 1"),
     ("todos", "done_by", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "note_source", "TEXT NOT NULL DEFAULT ''"),
+    ("todos", "detail", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -507,6 +509,7 @@ def _todo_row(row: dict) -> dict:
         "createdFrom": row.get("created_from") or "",
         "doneBy": row.get("done_by") or "",
         "noteSource": row.get("note_source") or "",
+        "detail": row.get("detail") or "",
     }
 
 
@@ -555,7 +558,7 @@ def update_todo(todo_id: str, fields: dict) -> dict | None:
         "horizon": "horizon", "dueDate": "due_date", "priority": "priority",
         "status": "status", "question": "question", "confidence": "confidence",
         "repeat": "repeat_rule", "minutes": "minutes",
-        "noteSource": "note_source",
+        "noteSource": "note_source", "detail": "detail",
     }
     sets, values = [], []
     for key, column in column_for.items():

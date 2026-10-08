@@ -13,7 +13,7 @@ import traceback
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from . import auth, calendar_ics, classify, config, db, store
+from . import auth, calendar_ics, classify, config, db, recipe, store
 from .constants import (
     DEFAULT_HORIZON,
     EFFORTS,
@@ -226,6 +226,44 @@ def _create_todo(payload: dict) -> dict:
     })}
 
 
+def _recipe(todo_id: str, payload: dict) -> dict:
+    """Rezeptvorschlag zu einer Essensidee holen und am Eintrag speichern."""
+    todo = db.get_todo(todo_id)
+    if not todo:
+        raise ApiError("Eintrag nicht gefunden.", 404)
+
+    try:
+        personen = max(1, min(20, int(payload.get("people") or 4)))
+    except (TypeError, ValueError):
+        personen = 4
+
+    try:
+        vorschlag, anbieter = recipe.suggest(
+            todo["title"], personen, str(payload.get("notes") or "")[:300], config.load())
+    except Exception as exc:
+        raise ApiError(str(exc), 502) from exc
+
+    zeilen = []
+    dauer = vorschlag.get("dauer_minuten") or 0
+    kopf = f"{vorschlag.get('portionen', personen)} Portionen"
+    if dauer:
+        kopf += f" · {dauer} Minuten"
+    zeilen.append(kopf)
+    zeilen.append("")
+    zeilen.append("Zutaten")
+    zeilen += [f"- {z}" for z in vorschlag.get("zutaten", [])]
+    zeilen.append("")
+    zeilen.append("Zubereitung")
+    zeilen += [f"{i}. {s}" for i, s in enumerate(vorschlag.get("schritte", []), 1)]
+    if vorschlag.get("hinweis"):
+        zeilen.append("")
+        zeilen.append(f"Hinweis: {vorschlag['hinweis']}")
+
+    text = "\n".join(zeilen)[:4000]
+    return {"todo": db.update_todo(todo_id, {"detail": text}),
+            "engine": anbieter}
+
+
 def _restore(todo_id: str) -> dict:
     """Ein versehentlich abgehaktes Todo zurückholen.
 
@@ -370,6 +408,7 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", r"^/api/todos$", lambda m, p: _create_todo(p)),
     ("POST", r"^/api/todos/([\w-]+)/confirm$", lambda m, p: _confirm(m.group(1), p)),
     ("POST", r"^/api/todos/([\w-]+)/restore$", lambda m, p: _restore(m.group(1))),
+    ("POST", r"^/api/todos/([\w-]+)/recipe$", lambda m, p: _recipe(m.group(1), p)),
     ("GET", r"^/api/recent$", lambda m, p: {"todos": db.recently_done(24)}),
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
     ("DELETE", r"^/api/todos/([\w-]+)$",

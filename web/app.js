@@ -618,8 +618,28 @@ function todoCard(todo, { overdue = false } = {}) {
     onclick: () => openEditor(todo),
   });
 
-  return el('div', { class: 'card' + (overdue ? ' overdue' : '') },
+  // Bei Essensideen gibt es zusätzlich den Rezeptvorschlag.
+  const istEssen = listKind(todo.listId) === 'meals';
+  const karte = el('div', { class: 'card' + (overdue ? ' overdue' : '') },
     el('div', { class: 'todo' }, [check, body, edit]));
+
+  if (istEssen) {
+    const fach = el('div', { hidden: !todo.detail });
+    if (todo.detail) fach.append(recipePanel(todo));
+    const auf = el('button', {
+      class: 'recipe-toggle', type: 'button',
+      text: todo.detail ? '▾ Rezept' : '🍲 Rezept',
+      onclick: () => {
+        if (!fach.childElementCount) fach.append(recipePanel(todo));
+        fach.hidden = !fach.hidden;
+        auf.textContent = (fach.hidden ? '▸ ' : '▾ ')
+          + (todo.detail ? 'Rezept' : 'Rezept vorschlagen');
+      },
+    });
+    karte.append(auf, fach);
+  }
+
+  return karte;
 }
 
 /* Abgehaktes mit Knopf zum Zurückholen. */
@@ -652,6 +672,56 @@ function doneCard(todo) {
       ]),
     ]),
     el('div', { class: 'actions' }, [restore]),
+  ]);
+}
+
+/* Rezeptvorschlag zu einer Essensidee.
+
+   Eigener Knopf statt automatisch: ein Rezept will man, wenn man kochen will -
+   nicht zu jeder Idee, die einem einfällt. Jeder Aufruf kostet schliesslich. */
+function recipePanel(todo) {
+  const personen = el('input', {
+    type: 'number', min: '1', max: '20', value: '4', class: 'recipe-people',
+    'aria-label': 'Für wie viele Personen?',
+  });
+  const wuensche = el('input', {
+    type: 'text', placeholder: 'z. B. vegetarisch, kalorienarm, schnell',
+    'aria-label': 'Besondere Wünsche',
+  });
+
+  const knopf = el('button', {
+    class: 'btn btn-sm', type: 'button',
+    text: todo.detail ? '↻ Neues Rezept' : '🍲 Rezept vorschlagen',
+    onclick: async () => {
+      knopf.disabled = true;
+      const vorher = knopf.textContent;
+      knopf.textContent = 'Kocht nach …';
+      try {
+        const result = await api(`/api/todos/${todo.id}/recipe`, 'POST', {
+          people: Number(personen.value) || 4,
+          notes: wuensche.value,
+        });
+        toast(`Rezept von ${engineName(result.engine)}.`);
+        await refresh();
+      } catch (error) {
+        toast(error.message, true);
+        knopf.disabled = false;
+        knopf.textContent = vorher;
+      }
+    },
+  });
+
+  return el('div', { class: 'recipe-box' }, [
+    el('div', { class: 'recipe-controls' }, [
+      el('label', { class: 'recipe-label' }, [
+        el('span', { text: 'Für' }), personen, el('span', { text: 'Personen' })]),
+      wuensche,
+      knopf,
+    ]),
+    todo.detail
+      ? el('pre', { class: 'recipe-text', text: todo.detail })
+      : el('p', { class: 'hint', style: 'margin:8px 0 0',
+          text: 'Wünsche sind freiwillig — ohne Angabe kommt ein alltagstaugliches Rezept.' }),
   ]);
 }
 
