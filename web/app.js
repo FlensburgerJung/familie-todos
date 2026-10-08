@@ -4,7 +4,7 @@
 const state = {
   todos: [], lists: [], people: [], settings: {}, keys: {},
   horizons: {}, repeats: {}, efforts: [], listKinds: {},
-  recentlyDone: [], engineChain: [], deployment: {},
+  recentlyDone: [], areas: [], engineChain: [], deployment: {},
   me: '',                // wer gerade an diesem Geraet arbeitet
   stale: false,          // zeigt gerade den gepufferten Stand
   engineProblem: null,   // warum zuletzt kein Modell antwortete
@@ -392,8 +392,10 @@ const personById = id => state.people.find(p => p.id === id);
    Termine zählen dagegen sehr wohl mit - ein täglich wiederkehrender Eintrag
    steht heute an, egal ob er auf der Aufgaben- oder der Terminliste liegt. */
 const listKind = id => (listById(id) || {}).kind || 'tasks';
-const DATED_KINDS = new Set(['tasks', 'appointments']);
-const isTask = todo => DATED_KINDS.has(listKind(todo.listId));
+const isTask = todo => {
+  const bereich = (state.areas || []).find(a => a.id === listKind(todo.listId));
+  return bereich ? bereich.dated : true;
+};
 
 const todayTodos = () => openTodos().filter(
   t => isTask(t) && (daysUntil(t.dueDate) ?? 99) <= 0);
@@ -577,8 +579,9 @@ function reviewCard(todo) {
   /* Auf einem Wunschzettel oder einer Merkliste gibt es nichts zu terminieren,
      zu schätzen oder zu wiederholen - ein Buchwunsch dauert keine 30 Minuten.
      Diese Felder bleiben dort weg, statt leer herumzustehen. */
+  const areaOf = kind => (state.areas || []).find(a => a.id === kind);
   const targetKind = listKind(todo.listId);
-  const dated = targetKind === 'tasks' || targetKind === 'appointments';
+  const dated = (areaOf(targetKind) || { dated: true }).dated;
 
   const titleInput = el('input', { type: 'text', value: todo.title });
 
@@ -606,7 +609,7 @@ function reviewCard(todo) {
   // Nach einem Listenwechsel passen die sichtbaren Felder womöglich nicht mehr.
   listSelect.addEventListener('change', () => {
     const neuArt = listKind(listSelect.value);
-    const neuDatiert = neuArt === 'tasks' || neuArt === 'appointments';
+    const neuDatiert = (areaOf(neuArt) || { dated: true }).dated;
     if (listSelect.value && listSelect.value !== '__new__' && neuDatiert !== dated) {
       render();
     }
@@ -749,16 +752,17 @@ function viewLists() {
   for (const list of state.lists.slice()
       .filter(l => l.inOverview !== false)
       .sort((a, b) => {
-        const rang = { tasks: 0, appointments: 1, shopping: 2, wishes: 3, media: 4 };
-        return (rang[a.kind] ?? 9) - (rang[b.kind] ?? 9) || a.sort - b.sort;
+        const reihenfolge = (state.areas || []).map(x => x.id);
+        const rang = k => { const i = reihenfolge.indexOf(k); return i < 0 ? 99 : i; };
+        return rang(a.kind) - rang(b.kind) || a.sort - b.sort;
       })) {
     const listItems = items.filter(t => t.listId === list.id);
     if (!listItems.length) continue;
     // Trennlinie, sobald eine neue Art beginnt.
     if (letzteArt !== null && list.kind !== letzteArt) {
       groups.append(el('div', { class: 'kind-divider' },
-        el('span', { text: { wishes: 'Wunschzettel', media: 'Merken', shopping: 'Einkauf',
-                             appointments: 'Termine' }[list.kind] || 'Weiteres' })));
+        el('span', { text: ((state.areas || []).find(a => a.id === list.kind) || {}).name
+                           || 'Weiteres' })));
     }
     letzteArt = list.kind;
     const zeichne = t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 });
@@ -854,7 +858,8 @@ function breadcrumb(trail) {
    Einordnung gehen müssen; das kostet sonst bei jedem Eintrag Geld. */
 function quickAdd(listId) {
   const list = listById(listId);
-  const dated = !list || list.kind === 'tasks' || list.kind === 'appointments';
+  const bereich = list ? (state.areas || []).find(a => a.id === list.kind) : null;
+  const dated = bereich ? bereich.dated : true;
 
   const input = el('input', {
     type: 'text', id: 'quick-add-input', autocomplete: 'off',
@@ -917,7 +922,7 @@ function viewFocus() {
 
   /* Kategorie-Ebene: zeigt die Listen darin als Kacheln, keine Einträge. */
   if (kind === 'area') {
-    const area = AREAS.find(a => a.id === id);
+    const area = allAreas().find(a => a.id === id);
     const lists = areaLists(id);
     const crumbs = breadcrumb([
       { label: '🏠 Start', go: goHome },
@@ -1020,7 +1025,7 @@ function viewFocus() {
   }
 
   // Der Weg zurück führt über die Kategorie, aus der man kam.
-  const parent = state.focus.from ? AREAS.find(a => a.id === state.focus.from) : null;
+  const parent = state.focus.from ? allAreas().find(a => a.id === state.focus.from) : null;
   const trail = [{ label: '🏠 Start', go: goHome }];
   if (parent) trail.push({ label: parent.name, go: () => openFocus('area', parent.id) });
   trail.push({ label: title.replace(/^\S+\s/, '') });
@@ -1060,22 +1065,15 @@ function viewFocus() {
   ]);
 }
 
-/* Die fünf Bereiche der obersten Ebene. Dahinter liegen jeweils die
-   einzelnen Listen - erst Kategorie, dann Liste, dann Einträge. */
-const AREAS = [
-  { id: 'tasks', name: 'Todos', emoji: '📋',
-    hint: 'Haushalt, Einkauf, Papierkram …' },
-  { id: 'shopping', name: 'Einkauf', emoji: '🛒',
-    hint: 'Täglicher Bedarf, Baumarkt, persönlich …' },
-  { id: 'wishes', name: 'Wunschzettel', emoji: '🎁',
-    hint: 'Geschenkideen je Person' },
-  { id: 'media', name: 'Merken', emoji: '🎬',
-    hint: 'Bücher, Filme, Podcasts' },
-  { id: 'repeating', name: 'Regelmäßig', emoji: '↻',
-    hint: 'Was immer wiederkommt' },
-  { id: 'appointments', name: 'Termine', emoji: '📅',
-    hint: 'Zu vereinbaren und was feststeht' },
-];
+/* Die Bereiche der obersten Ebene kommen aus der Datenbank - eigene lassen
+   sich unter „Mehr" anlegen. „Regelmäßig" ist kein Bereich, sondern eine
+   Querschnittsansicht über alle Listen, und wird darum angehängt. */
+const REPEATING_AREA = { id: 'repeating', name: 'Regelmäßig', emoji: '↻',
+                         hint: 'Was immer wiederkommt' };
+
+function allAreas() {
+  return [...(state.areas || []), REPEATING_AREA];
+}
 
 function areaTodos(areaId) {
   if (areaId === 'repeating') return repeatingTodos();
@@ -1121,15 +1119,12 @@ function viewStart() {
 
   /* Die fünf Bereiche. */
   view.append(el('section', { class: 'home-section' }, [
-    el('div', { class: 'big-tiles' }, AREAS.map(area => {
+    el('div', { class: 'big-tiles' }, allAreas().map(area => {
       const todos = areaTodos(area.id);
       const minutes = area.id === 'tasks' ? sumMinutes(todos) : 0;
       return el('button', {
         class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
-        onclick: () => {
-          if (area.id === 'calendar') { state.tab = 'week'; state.focus = null; render(); }
-          else openFocus('area', area.id);
-        },
+        onclick: () => openFocus('area', area.id),
       }, [
         el('span', { class: 'big-emoji', text: area.emoji }),
         el('span', { class: 'big-name', text: area.name }),
@@ -1657,14 +1652,95 @@ function viewSettings() {
     el('div', { class: 'actions' }, [saveSettings]),
   ]));
 
+  /* -- Bereiche -- */
+  const areaEditor = (area) => {
+    const name = el('input', { type: 'text', value: area.name, maxlength: '40' });
+    const emoji = el('input', { type: 'text', value: area.emoji, maxlength: '4' });
+    const hint = el('input', { type: 'text', value: area.hint || '',
+                               placeholder: 'Kurzer Hinweis unter dem Namen' });
+    const dated = el('input', { type: 'checkbox', style: 'width:auto', checked: area.dated });
+    const fest = ['tasks', 'appointments', 'shopping', 'wishes', 'media'].includes(area.id);
+    const anzahl = state.lists.filter(l => l.kind === area.id).length;
+    return el('div', { class: 'card' }, [
+      el('div', { class: 'row' }, [
+        el('div', { style: 'width:56px' }, emoji),
+        el('div', { class: 'grow' }, name),
+      ]),
+      el('div', { class: 'row' }, [el('div', { class: 'grow' }, hint)]),
+      el('div', { class: 'row' }, [
+        el('label', { class: 'field grow' }, [
+          el('span', { text: 'mit Terminen und Dauer (wie Aufgaben)' }), dated]),
+      ]),
+      el('div', { class: 'row' }, [
+        el('button', {
+          class: 'btn btn-sm', text: 'Sichern',
+          onclick: async () => {
+            try {
+              await api(`/api/areas/${area.id}`, 'PATCH', {
+                name: name.value, emoji: emoji.value, hint: hint.value,
+                dated: dated.checked,
+              });
+              toast('Gespeichert.');
+              await refresh();
+            } catch (error) { toast(error.message, true); }
+          },
+        }),
+        el('span', { style: 'flex:1' }),
+        el('span', { class: 'row-meta', text: `${anzahl} Listen` }),
+        fest ? null : el('button', {
+          class: 'btn btn-ghost btn-sm', text: 'Löschen',
+          onclick: async () => {
+            if (!confirm(`Bereich „${area.name}" löschen? Seine ${anzahl} Listen `
+                       + 'wandern zu den Todos.')) return;
+            await api(`/api/areas/${area.id}`, 'DELETE');
+            await refresh();
+          },
+        }),
+      ]),
+    ]);
+  };
+
+  const newAreaName = el('input', { type: 'text', placeholder: 'Name, z. B. Unternehmungen' });
+  const newAreaEmoji = el('input', { type: 'text', placeholder: '🎡', maxlength: '4',
+                                     style: 'width:56px' });
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Bereiche' }),
+    el('p', { class: 'hint',
+      text: 'Die Kacheln auf der Startseite. Eigene lassen sich hier anlegen — '
+          + 'etwa „Unternehmungen" mit Listen für Ausflüge, Restaurants und Kultur.' }),
+    ...(state.areas || []).map(areaEditor),
+    el('div', { class: 'row' }, [
+      el('div', { style: 'width:56px' }, newAreaEmoji),
+      el('div', { class: 'grow' }, newAreaName),
+      el('button', {
+        class: 'btn btn-sm', text: 'Bereich anlegen',
+        onclick: async () => {
+          const name = newAreaName.value.trim();
+          if (!name) return;
+          await api('/api/areas', 'POST', {
+            name, emoji: newAreaEmoji.value.trim() || '📂', dated: false,
+          });
+          newAreaName.value = ''; newAreaEmoji.value = '';
+          toast('Bereich angelegt. Jetzt Listen darin anlegen.');
+          await refresh();
+        },
+      }),
+    ]),
+  ]));
+
   /* -- Listen -- */
   const newListName = el('input', { type: 'text', placeholder: 'Name der Liste' });
+  const newListArea = el('select', {}, (state.areas || []).map(a => el('option', {
+    value: a.id, text: `${a.emoji} ${a.name}`,
+  })));
   const addList = el('button', {
     class: 'btn btn-sm', text: 'Hinzufügen',
     onclick: async () => {
       const name = newListName.value.trim();
       if (!name) return;
-      await api('/api/lists', 'POST', { name, emoji: '📋' });
+      await api('/api/lists', 'POST', {
+        name, emoji: '📋', kind: newListArea.value,
+      });
       newListName.value = '';
       await refresh();
     },
@@ -1672,7 +1748,11 @@ function viewSettings() {
   view.append(el('section', { class: 'section' }, [
     el('h2', { text: 'Listen' }),
     ...state.lists.map(listEditor),
-    el('div', { class: 'row' }, [el('div', { class: 'grow' }, newListName), addList]),
+    el('div', { class: 'row' }, [
+      el('div', { class: 'grow' }, newListName),
+      el('div', { style: 'flex:0 0 auto' }, newListArea),
+      addList,
+    ]),
   ]));
 
   /* -- Kalender -- */
@@ -1858,10 +1938,9 @@ function renderAssign() {
   listSelect.append(el('option', { value: '', text: '📥 Liste: automatisch' }));
   // Nach Art gruppiert statt alles in einer langen Reihe - der Browser setzt
   // dabei selbst eine Trennlinie mit Überschrift.
-  for (const [kind, titel] of [['tasks', 'Aufgaben'], ['appointments', 'Termine'],
-                               ['shopping', 'Einkauf'], ['wishes', 'Wunschzettel'],
-                               ['media', 'Merken']]) {
-    const darin = state.lists.filter(l => l.kind === kind);
+  for (const bereich of (state.areas || [])) {
+    const darin = state.lists.filter(l => l.kind === bereich.id);
+    const titel = bereich.name;
     if (!darin.length) continue;
     const gruppe = el('optgroup', { label: titel });
     for (const list of darin) {

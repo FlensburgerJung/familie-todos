@@ -249,16 +249,29 @@ Auf dem Start steht unter den Personen eine eigene Zeile für alles, was
 **niemandem zugewiesen** ist — nach dem Prinzip „macht, wer gerade Luft hat".
 Die Zeile hebt sich ab, sobald dort etwas liegt.
 
-## Listenarten
+## Bereiche und Listen
 
-Nicht alles ist eine Aufgabe mit Frist. Jede Liste hat eine Art:
+Die Startseite zeigt **Bereiche** als Kacheln; darunter liegen die einzelnen
+Listen. Mitgeliefert werden:
 
-| Art | Wofür | Termine |
+| Bereich | Listen darin | Termine |
 |---|---|---|
-| **Aufgaben** | Haushalt, Einkauf, Behörden … | ja |
-| **Termine** | was in den Familienkalender gehört | ja |
-| **Wünsche** | Geschenkideen, Wunschlisten | nein |
-| **Bücher, Filme, Podcasts** | was man mal lesen, sehen, hören will | nein |
+| **📋 Todos** | Haushalt, Kindergarten, Behörden … | ja |
+| **🛒 Einkauf** | Täglicher Bedarf, Baumarkt, Elektro, je Person | nein |
+| **📅 Termine** | zu vereinbaren und was feststeht | ja |
+| **🎡 Unternehmungen** | Ausflüge, Essen gehen, Kultur | nein |
+| **🎁 Wunschzettel** | je Person | nein |
+| **🎬 Merken** | Bücher, Filme, Podcasts | nein |
+
+**Eigene Bereiche** legst du unter *Mehr → Bereiche* an — mit Name, Emoji und
+der Angabe, ob darin Termine und Dauer geführt werden. Danach dort Listen
+anlegen. Löschst du einen Bereich, wandern seine Listen zu den Todos; nichts
+geht verloren.
+
+Bereiche ohne Termine sind **Sammlungen**: Ihre Einträge haben keine Frist und
+keine Dauer, erscheinen nicht unter „überfällig", nicht im Tab „Listen", nicht
+bei „frei zu vergeben" und nicht im Kalender. Ein Buchtipp oder „mal an die
+Ostsee fahren" soll einen schließlich nicht als überfällig anmahnen.
 
 Wünsche und Medien tauchen nie unter „überfällig" auf, stehen nicht im Kalender
 und bekommen keine Dauer — ein Buchtipp hat keine Frist. Sie haben eigene

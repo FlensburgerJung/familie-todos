@@ -133,7 +133,8 @@ WEEKDAYS_DE = ("Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag",
                "Samstag", "Sonntag")
 
 
-def _context_block(lists: list[dict], people: list[dict], horizon: str) -> str:
+def _context_block(lists: list[dict], people: list[dict], horizon: str,
+                   areas: list[dict] | None = None) -> str:
     horizon_spec = HORIZONS.get(horizon, HORIZONS[DEFAULT_HORIZON])
     now = today()
     default_due = iso_date(now + dt.timedelta(days=horizon_spec["offset_days"]))
@@ -149,12 +150,15 @@ def _context_block(lists: list[dict], people: list[dict], horizon: str) -> str:
         keywords = ", ".join(entry.get("keywords", [])[:8])
         line = f"- {entry['id']} - {entry['name']}: {entry.get('description', '')}"
         kind = entry.get("kind", "tasks")
+        bereich = next((a for a in (areas or []) if a["id"] == kind), None)
         if kind == "appointments":
             line += " [Terminliste: alles mit fester Uhrzeit gehört hierher]"
         elif kind == "shopping":
             line += " [Einkaufszettel: einzelne Posten, kein Termin]"
+        elif bereich and not bereich.get("dated", True):
+            line += f" [Sammlung ohne Termin: {bereich['name']}]"
         elif kind != "tasks":
-            line += f" [Merkliste ohne Termin: {LIST_KINDS[kind]['label']}]"
+            line += " [Sammlung ohne Termin]"
         if keywords:
             line += f" [Stichwörter: {keywords}]"
         lines.append(line)
@@ -273,14 +277,14 @@ def provider_chain(config: dict) -> list[str]:
 
 
 def classify(text: str, horizon: str, lists: list[dict], people: list[dict],
-             config: dict) -> tuple[dict, str, list[str]]:
+             config: dict, areas: list[dict] | None = None) -> tuple[dict, str, list[str]]:
     """Gibt (Einordnung, verwendete Engine, Fehlermeldungen) zurück."""
     if horizon not in HORIZONS:
         horizon = DEFAULT_HORIZON
 
     system = SYSTEM_PROMPT
     user = (
-        f"{_context_block(lists, people, horizon)}\n\n"
+        f"{_context_block(lists, people, horizon, areas)}\n\n"
         f"Neuer Einwurf der Familie:\n\"\"\"\n{text.strip()}\n\"\"\""
     )
 

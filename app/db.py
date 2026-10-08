@@ -27,6 +27,16 @@ CREATE TABLE IF NOT EXISTS lists (
     sort        INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS areas (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    emoji       TEXT NOT NULL DEFAULT '📂',
+    hint        TEXT NOT NULL DEFAULT '',
+    dated       INTEGER NOT NULL DEFAULT 1,
+    sort        INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS people (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
@@ -148,6 +158,100 @@ def _seed_lists() -> None:
     ])
 
 
+# Die Bereiche der obersten Ebene. Stehen in der Datenbank, nicht im Code -
+# so lassen sich eigene anlegen, ohne die App zu ändern. Die Spalte
+# lists.kind verweist auf areas.id.
+SEED_AREAS = [
+    ("tasks", "Todos", "📋", "Haushalt, Papierkram, Behörden …", 1),
+    ("shopping", "Einkauf", "🛒", "Täglicher Bedarf, Baumarkt, persönlich …", 0),
+    ("appointments", "Termine", "📅", "Zu vereinbaren und was feststeht", 1),
+    ("activities", "Unternehmungen", "🎡", "Ausflüge, Essen gehen, Kultur", 0),
+    ("wishes", "Wunschzettel", "🎁", "Geschenkideen je Person", 0),
+    ("media", "Merken", "🎬", "Bücher, Filme, Podcasts", 0),
+]
+
+# Listen, die beim ersten Mal in einem neuen Bereich entstehen
+SEED_AREA_LISTS = {
+    "activities": [
+        ("ausfluege", "Ausflüge & Reisen", "🧭", "Ostsee, Wochenenden, Tagestouren"),
+        ("essen-gehen", "Essen gehen", "🍽", "Restaurants, die wir mal ausprobieren wollen"),
+        ("kultur", "Kultur & mit Kind", "🎭", "Theater, Ausstellungen, Konzerte"),
+    ],
+}
+
+
+def get_areas() -> list[dict]:
+    rows = store.query("SELECT * FROM areas ORDER BY sort, name")
+    return [{"id": r["id"], "name": r["name"], "emoji": r["emoji"],
+             "hint": r["hint"], "dated": bool(r["dated"]), "sort": r["sort"]}
+            for r in rows]
+
+
+def area_is_dated(kind: str) -> bool:
+    """Hat dieser Bereich Termine und Dauer? Unbekanntes gilt als Aufgabe."""
+    row = store.one("SELECT dated FROM areas WHERE id=?", (kind or "tasks",))
+    return bool(row["dated"]) if row else True
+
+
+def create_area(name: str, emoji: str = "📂", hint: str = "",
+                dated: bool = False) -> dict:
+    base = slugify(name)
+    area_id, n = base, 2
+    while store.one("SELECT 1 AS x FROM areas WHERE id=?", (area_id,)):
+        area_id, n = f"{base}-{n}", n + 1
+    row = store.one("SELECT COALESCE(MAX(sort), 0) AS m FROM areas")
+    store.execute(
+        "INSERT INTO areas (id, name, emoji, hint, dated, sort, created_at)"
+        " VALUES (?,?,?,?,?,?,?)",
+        (area_id, name.strip()[:40], emoji or "📂", hint.strip()[:80],
+         1 if dated else 0, (row["m"] or 0) + 1, now_ts()))
+    return next(a for a in get_areas() if a["id"] == area_id)
+
+
+def update_area(area_id: str, fields: dict) -> dict | None:
+    sets, values = [], []
+    for key in {"name", "emoji", "hint"} & fields.keys():
+        sets.append(f"{key}=?")
+        values.append(str(fields[key])[:80])
+    if "dated" in fields:
+        sets.append("dated=?")
+        values.append(1 if fields["dated"] else 0)
+    if sets:
+        values.append(area_id)
+        store.execute(f"UPDATE areas SET {', '.join(sets)} WHERE id=?", values)
+    return next((a for a in get_areas() if a["id"] == area_id), None)
+
+
+def delete_area(area_id: str) -> None:
+    """Bereich entfernen; seine Listen wandern zu den Aufgaben."""
+    store.execute_many([
+        ("UPDATE lists SET kind='tasks' WHERE kind=?", (area_id,)),
+        ("DELETE FROM areas WHERE id=?", (area_id,)),
+    ])
+
+
+def _seed_areas() -> None:
+    store.execute_many([
+        ("INSERT INTO areas (id, name, emoji, hint, dated, sort, created_at)"
+         " VALUES (?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
+         (aid, name, emoji, hint, dated, i, now_ts()))
+        for i, (aid, name, emoji, hint, dated) in enumerate(SEED_AREAS)
+    ])
+    # Zu jedem frisch angelegten Bereich die vorgesehenen Listen
+    for area_id, eintraege in SEED_AREA_LISTS.items():
+        if store.one("SELECT 1 AS x FROM lists WHERE kind=? LIMIT 1", (area_id,)):
+            continue
+        row = store.one("SELECT COALESCE(MAX(sort), 0) AS m FROM lists")
+        rang = (row["m"] or 0) + 1
+        for lid, name, emoji, beschreibung in eintraege:
+            store.execute(
+                "INSERT INTO lists (id, name, emoji, description, keywords, kind,"
+                " in_overview, sort, created_at) VALUES (?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT (id) DO NOTHING",
+                (lid, name, emoji, beschreibung, "[]", area_id, 0, rang, now_ts()))
+            rang += 1
+
+
 def _migrate_data() -> None:
     """Inhaltliche Anpassungen an bestehenden Datenbanken.
 
@@ -225,6 +329,7 @@ def _migrate_data() -> None:
 def init() -> None:
     store.script(SCHEMA)
     _migrate_columns()
+    _seed_areas()
     _seed_lists()
     _migrate_data()
     store.execute_many([
@@ -286,7 +391,7 @@ def create_list(name: str, emoji: str = "📋", description: str = "",
         " VALUES (?,?,?,?,?,?,?,?)",
         (list_id, name.strip(), emoji or "📋", description,
          json.dumps(keywords or [], ensure_ascii=False),
-         kind if kind in LIST_KINDS else "tasks",
+         kind if store.one("SELECT 1 AS x FROM areas WHERE id=?", (kind,)) else "tasks",
          (row["m"] or 0) + 1, now_ts()),
     )
     return get_list(list_id)

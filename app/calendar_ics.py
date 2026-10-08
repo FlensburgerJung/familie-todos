@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from .constants import LIST_KINDS, parse_date
+from .constants import parse_date
 
 PRIORITY_MARK = {"high": "❗️", "normal": "", "low": "·"}
 
@@ -36,8 +36,12 @@ def _fold(line: str) -> str:
 
 
 def build(todos: list[dict], lists: list[dict], people: list[dict],
-          name: str = "Familie ToDos") -> str:
-    list_by_id = {entry["id"]: entry for entry in lists}
+          name: str = "Familie ToDos", dated_kinds: set | None = None) -> str:
+    # Welche Bereiche Termine führen, weiß die Datenbank - hier kommt es als
+    # Menge herein, damit dieses Modul ohne Datenbankzugriff auskommt.
+    dated_kinds = dated_kinds if dated_kinds is not None else {"tasks", "appointments"}
+    list_by_id = {entry["id"]: {**entry, "dated": entry.get("kind") in dated_kinds}
+                  for entry in lists}
     person_by_id = {person["id"]: person for person in people}
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
@@ -60,7 +64,7 @@ def build(todos: list[dict], lists: list[dict], people: list[dict],
         entry = list_by_id.get(todo.get("listId") or "")
         # Wünsche und Merklisten haben keinen Termin - sie gehören nicht in
         # den Kalender, sonst steht dort jeder Buchtipp als Tagestermin.
-        if entry and not LIST_KINDS.get(entry.get("kind", "tasks"), {}).get("dated", True):
+        if entry and not entry.get("dated", True):
             continue
         person = person_by_id.get(todo.get("assigneeId") or "")
         mark = PRIORITY_MARK.get(todo.get("priority", "normal"), "")

@@ -64,7 +64,8 @@ def _state() -> dict:
         "horizons": {key: spec["label"] for key, spec in HORIZONS.items()},
         "repeats": {key: spec["label"] for key, spec in REPEATS.items()},
         "efforts": EFFORTS,
-        "listKinds": {key: spec["label"] for key, spec in LIST_KINDS.items()},
+        "areas": db.get_areas(),
+        "listKinds": {a["id"]: a["name"] for a in db.get_areas()},
         "engineChain": classify.provider_chain(cfg) + ["heuristic"],
         "deployment": {
             "backend": store.backend(),
@@ -90,7 +91,7 @@ def _capture(payload: dict) -> dict:
     # Listen dieser Art in Frage - und gibt es davon nur eine, erübrigt sich
     # der Modellaufruf ganz.
     kind_hint = (payload.get("kind") or "").strip()
-    if kind_hint in LIST_KINDS:
+    if kind_hint and any(a["id"] == kind_hint for a in db.get_areas()):
         passende = [entry for entry in lists if entry.get("kind") == kind_hint]
         if len(passende) == 1:
             payload = {**payload, "listId": passende[0]["id"]}
@@ -109,14 +110,15 @@ def _capture(payload: dict) -> dict:
     # Steht die Liste schon fest und ist es eine Merkliste, gibt es nichts zu
     # entscheiden: Titel ist der Text, Termin und Dauer entfallen ohnehin.
     target_now = db.get_list(chosen_list) if chosen_list else None
-    if target_now and not LIST_KINDS.get(target_now.get("kind", "tasks"), {}).get("dated", True):
+    if target_now and not db.area_is_dated(target_now.get("kind", "tasks")):
         todo = db.create_todo({
             "title": text[:120], "rawInput": text, "listId": chosen_list,
             "status": "open", "confidence": 1.0, "engine": "manuell",
         })
         return {"todo": todo, "engine": "manuell", "problems": [], "autoFiled": True}
 
-    result, engine, problems = classify.classify(text, horizon, lists, people, cfg)
+    result, engine, problems = classify.classify(text, horizon, lists, people, cfg,
+                                                 db.get_areas())
 
     if chosen_list:
         result["list"] = chosen_list
@@ -140,7 +142,7 @@ def _capture(payload: dict) -> dict:
     # Merklisten bekommen keinen Termin, keine Dauer und keine Wiederholung -
     # ein Buchtipp hat keine Frist, egal was das Modell vorschlägt.
     target = db.get_list(result["list"]) if result["list"] else None
-    if target and not LIST_KINDS.get(target.get("kind", "tasks"), {}).get("dated", True):
+    if target and not db.area_is_dated(target.get("kind", "tasks")):
         result["due_date"] = None
         result["minutes"] = 0
         result["repeat"] = ""
@@ -184,7 +186,7 @@ def _create_todo(payload: dict) -> dict:
         assignee = ""
 
     horizon = payload.get("horizon") if payload.get("horizon") in HORIZONS else DEFAULT_HORIZON
-    dated = LIST_KINDS.get((target or {}).get("kind", "tasks"), {}).get("dated", True)
+    dated = db.area_is_dated((target or {}).get("kind", "tasks"))
 
     due = None
     if dated:
@@ -265,7 +267,7 @@ def _confirm(todo_id: str, payload: dict) -> dict:
         raise ApiError("Bitte eine Liste wählen.")
 
     target = db.get_list(fields.get("listId") or todo["listId"])
-    if target and not LIST_KINDS.get(target.get("kind", "tasks"), {}).get("dated", True):
+    if target and not db.area_is_dated(target.get("kind", "tasks")):
         fields["dueDate"] = None
         fields["repeat"] = ""
 
@@ -355,6 +357,12 @@ ROUTES: list[tuple[str, str, object]] = [
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
     ("DELETE", r"^/api/todos/([\w-]+)$",
      lambda m, p: (db.delete_todo(m.group(1)), {"ok": True})[1]),
+    ("POST", r"^/api/areas$",
+     lambda m, p: {"area": db.create_area(p.get("name", ""), p.get("emoji", "📂"),
+                                          p.get("hint", ""), bool(p.get("dated")))}),
+    ("PATCH", r"^/api/areas/([\w-]+)$", lambda m, p: {"area": db.update_area(m.group(1), p)}),
+    ("DELETE", r"^/api/areas/([\w-]+)$",
+     lambda m, p: (db.delete_area(m.group(1)), {"ok": True})[1]),
     ("POST", r"^/api/lists$",
      lambda m, p: {"list": db.create_list(p.get("name", ""), p.get("emoji", "📋"),
                                           p.get("description", ""), p.get("keywords", []),
@@ -461,7 +469,8 @@ def _calendar(request: Request, person_id: str | None) -> Response:
         todos = [t for t in todos if t["assigneeId"] == person_id]
         name = f"ToDos {person['name']}"
 
-    ics = calendar_ics.build(todos, db.get_lists(), people, name)
+    dated = {a["id"] for a in db.get_areas() if a["dated"]}
+    ics = calendar_ics.build(todos, db.get_lists(), people, name, dated)
     return Response(200, ics.encode("utf-8"), "text/calendar; charset=utf-8",
                     [("Content-Disposition", f'inline; filename="{person_id or "familie"}.ics"')])
 
