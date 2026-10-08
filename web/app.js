@@ -605,8 +605,13 @@ function reviewCard(todo) {
      zu schätzen oder zu wiederholen - ein Buchwunsch dauert keine 30 Minuten.
      Diese Felder bleiben dort weg, statt leer herumzustehen. */
   const areaOf = kind => (state.areas || []).find(a => a.id === kind);
+
+  /* Welche Felder sinnvoll sind, haengt an der gewaehlten Liste - und die
+     laesst sich mitten im Bearbeiten wechseln. Deshalb wird der Zustand bei
+     Bedarf neu bestimmt, statt ihn einmal festzuschreiben. */
+  const istDatiert = (kind) => (areaOf(kind) || { dated: true }).dated;
   const targetKind = listKind(todo.listId);
-  const dated = (areaOf(targetKind) || { dated: true }).dated;
+  let dated = istDatiert(targetKind);
 
   const titleInput = el('input', { type: 'text', value: todo.title });
   // Bisher liess sich die Notiz nicht aendern - dabei schreibt das Modell
@@ -637,14 +642,6 @@ function reviewCard(todo) {
   ]);
   const syncNewList = () => { newListWrap.hidden = listSelect.value !== '__new__'; };
   listSelect.addEventListener('change', syncNewList);
-  // Nach einem Listenwechsel passen die sichtbaren Felder womöglich nicht mehr.
-  listSelect.addEventListener('change', () => {
-    const neuArt = listKind(listSelect.value);
-    const neuDatiert = (areaOf(neuArt) || { dated: true }).dated;
-    if (listSelect.value && listSelect.value !== '__new__' && neuDatiert !== dated) {
-      render();
-    }
-  });
 
   const personSelect = el('select', {}, [
     el('option', { value: '', text: dated ? '— niemand —' : '🏠 für alle' }),
@@ -673,6 +670,34 @@ function reviewCard(todo) {
       selected: Number(todo.minutes || 0) === minutes,
     })));
 
+  // Beschriftungen gesondert halten: sie wechseln mit der Liste mit.
+  const personLabel = el('span', { text: dated ? 'Wer' : 'Für wen' });
+  const dueLabel = el('span', { text: dated ? 'Fällig' : 'Für welchen Tag' });
+  const personWrap = el('label', { class: 'field' }, [personLabel, personSelect]);
+  const dueWrap = el('label', { class: 'field' }, [dueLabel, dueInput]);
+  const prioWrap = el('label', { class: 'field' }, [el('span', { text: 'Priorität' }), prioSelect]);
+  const repeatWrap = el('label', { class: 'field' }, [el('span', { text: 'Wiederholung' }), repeatSelect]);
+  const effortWrap = el('label', { class: 'field' }, [el('span', { text: 'Dauer' }), effortSelect]);
+
+  /* Beim Wechsel der Liste die passenden Felder zeigen - ohne die Karte neu
+     zu bauen. Vorher wurde hier die ganze Ansicht neu gezeichnet, wodurch die
+     Karte samt Eingaben verschwand und sich nichts mehr speichern liess. */
+  function syncFelder() {
+    const kind = listSelect.value === '__new__'
+      ? (todo.listId ? listKind(todo.listId) : 'tasks')
+      : listKind(listSelect.value);
+    dated = istDatiert(kind);
+    personLabel.textContent = dated ? 'Wer' : 'Für wen';
+    dueLabel.textContent = dated ? 'Fällig' : 'Für welchen Tag';
+    const ersteOption = personSelect.options[0];
+    if (ersteOption) ersteOption.textContent = dated ? '— niemand —' : '🏠 für alle';
+    dueWrap.hidden = !(dated || kind === 'postits');
+    prioWrap.hidden = !dated;
+    repeatWrap.hidden = !dated;
+    effortWrap.hidden = !dated;
+  }
+  listSelect.addEventListener('change', syncFelder);
+
   const confirmBtn = el('button', { class: 'btn btn-primary', text: 'Passt so' });
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled = true;
@@ -681,13 +706,12 @@ function reviewCard(todo) {
       note: noteInput.value.trim(),
       assigneeId: personSelect.value,
     };
-    if (!dated && targetKind === 'postits') payload.dueDate = dueInput.value;
-    if (dated) {
-      payload.dueDate = dueInput.value;
-      payload.priority = prioSelect.value;
-      payload.repeat = repeatSelect.value;
-      payload.minutes = Number(effortSelect.value);
-    }
+    // Nicht sichtbare Felder nicht mitschicken - sonst schriebe man einer
+    // Sammlung eine Dauer zu, die sie gar nicht anzeigt.
+    if (!dueWrap.hidden) payload.dueDate = dueInput.value;
+    if (!prioWrap.hidden) payload.priority = prioSelect.value;
+    if (!repeatWrap.hidden) payload.repeat = repeatSelect.value;
+    if (!effortWrap.hidden) payload.minutes = Number(effortSelect.value);
     if (listSelect.value === '__new__') {
       if (!newListInput.value.trim()) {
         toast('Bitte der neuen Liste einen Namen geben.', true);
@@ -729,15 +753,11 @@ function reviewCard(todo) {
     el('div', { class: 'fields' }, [
       el('label', { class: 'field wide' }, [el('span', { text: 'Liste' }), listSelect]),
       newListWrap,
-      el('label', { class: 'field' }, [
-        el('span', { text: dated ? 'Wer' : 'Für wen' }), personSelect]),
-      (dated || targetKind === 'postits')
-        ? el('label', { class: 'field' }, [
-            el('span', { text: dated ? 'Fällig' : 'Für welchen Tag' }), dueInput])
-        : null,
-      dated ? el('label', { class: 'field' }, [el('span', { text: 'Priorität' }), prioSelect]) : null,
-      dated ? el('label', { class: 'field' }, [el('span', { text: 'Wiederholung' }), repeatSelect]) : null,
-      dated ? el('label', { class: 'field' }, [el('span', { text: 'Dauer' }), effortSelect]) : null,
+      personWrap,
+      dueWrap,
+      prioWrap,
+      repeatWrap,
+      effortWrap,
     ]),
     el('div', { class: 'actions' }, [
       confirmBtn,
@@ -750,6 +770,7 @@ function reviewCard(todo) {
     ]),
   ]);
   syncNewList();
+  syncFelder();
   return card;
 }
 
