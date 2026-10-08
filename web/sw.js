@@ -2,8 +2,9 @@
    API-Antworten werden bewusst nicht gecacht - veraltete Todos wären
    schlimmer als eine ehrliche Fehlermeldung. */
 
-const CACHE = 'familie-todos-v8';
-const SHELL = ['/', '/index.html', '/style.css', '/app.js', '/icon.svg', '/manifest.webmanifest'];
+const CACHE = 'familie-todos-v10';
+const SHELL = ['/', '/index.html', '/style.css', '/app.js', '/icon.svg',
+               '/icon-192.png', '/icon-512.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));

@@ -102,7 +102,8 @@ Regeln:
 - Antworte immer auf Deutsch.
 - Wähle genau eine bestehende Liste, wenn eine halbwegs passt. Neue Listen nur, wenn \
 wirklich keine passt - dann `new_list` füllen und `list` leer lassen.
-- Weise eine Person nur zu, wenn Name oder Kompetenz das nahelegen. Im Zweifel leer lassen.
+- Weise eine Person nur zu, wenn Name, Rolle oder Kompetenz das nahelegen. Einem \
+Kind keine Behördengänge, Rechnungen oder Autoreparaturen. Im Zweifel leer lassen.
 - Setze `due_date` nur, wenn der Text ein Datum, einen Wochentag oder eine Frist nennt \
 ("Freitag", "bis Monatsende", "vor dem Elternabend"); rechne den Wochentag in ein echtes \
 Datum um. Sonst leer lassen - dann setzt die App den Zeithorizont ein.
@@ -153,10 +154,12 @@ def _context_block(lists: list[dict], people: list[dict], horizon: str) -> str:
         lines.append(line)
 
     if people:
-        lines.append("\nPersonen (ID - Name: Kompetenzen):")
+        lines.append("\nPersonen (ID - Name: Rolle; Kompetenzen):")
         for person in people:
-            skills = ", ".join(person.get("skills", [])) or "keine hinterlegt"
-            lines.append(f"- {person['id']} - {person['name']}: {skills}")
+            skills = ", ".join(person.get("skills", [])) or "keine Kompetenzen hinterlegt"
+            role = person.get("role", "").strip()
+            wer = f"{person['name']} ({role})" if role else person["name"]
+            lines.append(f"- {person['id']} - {wer}: {skills}")
     else:
         lines.append("\nEs sind noch keine Personen angelegt - `assignee` immer leer lassen.")
 

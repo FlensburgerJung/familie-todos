@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS people (
     name       TEXT NOT NULL,
     emoji      TEXT NOT NULL DEFAULT '🙂',
     skills     TEXT NOT NULL DEFAULT '[]',
+    role       TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS todos (
@@ -51,6 +52,7 @@ CREATE TABLE IF NOT EXISTS todos (
     suggestion    TEXT NOT NULL DEFAULT '{}',
     repeat_rule   TEXT NOT NULL DEFAULT '',
     minutes       INTEGER NOT NULL DEFAULT 0,
+    created_from  TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
     done_at       TEXT
 );
@@ -115,6 +117,8 @@ LATER_COLUMNS = [
     ("todos", "repeat_rule", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "minutes", "INTEGER NOT NULL DEFAULT 0"),
     ("lists", "kind", "TEXT NOT NULL DEFAULT 'tasks'"),
+    ("people", "role", "TEXT NOT NULL DEFAULT ''"),
+    ("todos", "created_from", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -272,7 +276,8 @@ def delete_list(list_id: str) -> None:
 
 def _person_row(row: dict) -> dict:
     return {"id": row["id"], "name": row["name"], "emoji": row["emoji"],
-            "skills": json.loads(row["skills"] or "[]")}
+            "skills": json.loads(row["skills"] or "[]"),
+            "role": row.get("role") or ""}
 
 
 def get_people() -> list[dict]:
@@ -284,24 +289,26 @@ def get_person(person_id: str) -> dict | None:
     return _person_row(row) if row else None
 
 
-def create_person(name: str, emoji: str = "🙂", skills: list | None = None) -> dict:
+def create_person(name: str, emoji: str = "🙂", skills: list | None = None,
+                  role: str = "") -> dict:
     base = slugify(name)
     person_id, n = base, 2
     while store.one("SELECT 1 AS x FROM people WHERE id=?", (person_id,)):
         person_id, n = f"{base}-{n}", n + 1
     store.execute(
-        "INSERT INTO people (id, name, emoji, skills, created_at) VALUES (?,?,?,?,?)",
+        "INSERT INTO people (id, name, emoji, skills, role, created_at)"
+        " VALUES (?,?,?,?,?,?)",
         (person_id, name.strip(), emoji or "🙂",
-         json.dumps(skills or [], ensure_ascii=False), now_ts()),
+         json.dumps(skills or [], ensure_ascii=False), role.strip()[:60], now_ts()),
     )
     return get_person(person_id)
 
 
 def update_person(person_id: str, fields: dict) -> dict | None:
     sets, values = [], []
-    for key in {"name", "emoji"} & fields.keys():
+    for key in {"name", "emoji", "role"} & fields.keys():
         sets.append(f"{key}=?")
-        values.append(fields[key])
+        values.append(str(fields[key])[:60])
     if "skills" in fields:
         sets.append("skills=?")
         values.append(json.dumps(fields["skills"], ensure_ascii=False))
@@ -332,6 +339,7 @@ def _todo_row(row: dict) -> dict:
         "minutes": int(row.get("minutes") or 0),
         "suggestion": json.loads(row["suggestion"] or "{}"),
         "createdAt": row["created_at"], "doneAt": row["done_at"],
+        "createdFrom": row.get("created_from") or "",
     }
 
 
@@ -353,7 +361,8 @@ def create_todo(data: dict) -> dict:
     store.execute(
         "INSERT INTO todos (id, title, raw_input, note, list_id, assignee_id, horizon,"
         " due_date, priority, status, confidence, question, tags, engine, suggestion,"
-        " created_at, done_at, repeat_rule, minutes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " created_at, done_at, repeat_rule, minutes, created_from)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             todo_id,
             (data.get("title") or "").strip() or "Ohne Titel",
@@ -367,6 +376,7 @@ def create_todo(data: dict) -> dict:
             json.dumps(data.get("suggestion", {}), ensure_ascii=False),
             data.get("createdAt") or now_ts(), data.get("doneAt"),
             data.get("repeat", ""), int(data.get("minutes") or 0),
+            data.get("createdFrom", ""),
         ),
     )
     return get_todo(todo_id)
@@ -402,6 +412,23 @@ def update_todo(todo_id: str, fields: dict) -> dict | None:
 
 def delete_todo(todo_id: str) -> None:
     store.execute("DELETE FROM todos WHERE id=?", (todo_id,))
+
+
+def recently_done(hours: int = 24) -> list[dict]:
+    """Was zuletzt abgehakt wurde - zum Zurückholen nach einem Fehlgriff."""
+    since = (dt.datetime.now() - dt.timedelta(hours=int(hours))).isoformat()
+    rows = store.query(
+        "SELECT * FROM todos WHERE status='done' AND done_at IS NOT NULL"
+        " AND done_at >= ? ORDER BY done_at DESC", (since,))
+    return [_todo_row(r) for r in rows]
+
+
+def follow_up_of(todo_id: str) -> dict | None:
+    """Der beim Abhaken erzeugte Folgetermin, falls er noch offen ist."""
+    row = store.one(
+        "SELECT * FROM todos WHERE created_from=? AND status <> 'done'"
+        " ORDER BY created_at DESC", (todo_id,))
+    return _todo_row(row) if row else None
 
 
 def purge_done(before_days: int = 30) -> int:
@@ -476,10 +503,11 @@ def import_all(data: dict, replace: bool = True) -> dict:
 
     for entry in data.get("people", []):
         statements.append((
-            "INSERT INTO people (id, name, emoji, skills, created_at) VALUES (?,?,?,?,?)"
-            " ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO people (id, name, emoji, skills, role, created_at)"
+            " VALUES (?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
             (entry["id"], entry.get("name", entry["id"]), entry.get("emoji", "🙂"),
-             json.dumps(entry.get("skills", []), ensure_ascii=False), now_ts())))
+             json.dumps(entry.get("skills", []), ensure_ascii=False),
+             entry.get("role", ""), now_ts())))
 
     for entry in data.get("todos", []):
         statements.append((

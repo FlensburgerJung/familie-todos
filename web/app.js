@@ -4,7 +4,7 @@
 const state = {
   todos: [], lists: [], people: [], settings: {}, keys: {},
   horizons: {}, repeats: {}, efforts: [], listKinds: {},
-  engineChain: [], deployment: {},
+  recentlyDone: [], engineChain: [], deployment: {},
   stale: false,          // zeigt gerade den gepufferten Stand
   engineProblem: null,   // warum zuletzt kein Modell antwortete
   tab: 'start',
@@ -18,6 +18,23 @@ const state = {
 
 const QUEUE_KEY = 'familie-todos-queue';
 const CACHE_KEY = 'familie-todos-state';
+const SHARED_KEY = 'familie-todos-shared';
+
+/* Android kann Text aus jeder App hierher teilen (share_target im Manifest).
+   Der Text wird sofort weggeschrieben: Zwischen Teilen und fertig geladener
+   Oberflaeche kann eine Anmeldung liegen, die die Adresse verwirft. */
+(function catchShared() {
+  const params = new URLSearchParams(location.search);
+  const shared = [params.get('title'), params.get('text'), params.get('url')]
+    .filter(Boolean).join(' ').trim();
+  if (shared) {
+    try { localStorage.setItem(SHARED_KEY, shared); } catch { /* egal */ }
+  }
+  if (shared || params.has('neu')) {
+    try { history.replaceState(null, '', '/'); } catch { /* egal */ }
+    window.__openCapture = true;
+  }
+})();
 const SOON_DAYS = 7;
 
 // Am Telefon soll nach dem Absenden die Tastatur zugehen, damit man sieht,
@@ -89,12 +106,24 @@ function formatEffort(minutes) {
   return rest === 0 ? `${hours} h` : `${hours}:${String(rest).padStart(2, '0')} h`;
 }
 
-function toast(message, isError = false) {
+function toast(message, isError = false, undo = null) {
   const node = document.getElementById('toast');
-  node.textContent = message;
+  node.textContent = '';
+  node.append(document.createTextNode(message));
+  if (undo) {
+    node.append(el('button', {
+      class: 'toast-undo', type: 'button', text: 'Rückgängig',
+      onclick: async () => {
+        node.className = '';
+        await undo();
+      },
+    }));
+  }
   node.className = 'show' + (isError ? ' error' : '');
   clearTimeout(node._timer);
-  node._timer = setTimeout(() => { node.className = ''; }, isError ? 6000 : 3500);
+  // Mit Rückgängig länger stehen lassen - man muss es ja lesen und treffen.
+  node._timer = setTimeout(() => { node.className = ''; },
+                           isError ? 6000 : (undo ? 8000 : 3500));
 }
 
 /* Schlafende Server geduldig wecken.
@@ -314,6 +343,11 @@ const FOCUS_VIEWS = {
     get: repeatingTodos,
   },
   wishes: { title: 'Wünsche', get: () => kindTodos('wishes') },
+  recent: {
+    title: 'Zuletzt erledigt',
+    hint: 'Die letzten 24 Stunden. Versehentlich abgehakt? Hier zurückholen.',
+    get: () => state.recentlyDone || [],
+  },
   media: { title: 'Bücher, Filme & Podcasts', get: () => kindTodos('media') },
 };
 
@@ -353,7 +387,14 @@ function todoCard(todo, { overdue = false } = {}) {
         const result = await api(`/api/todos/${todo.id}`, 'PATCH', { status: 'done' });
         toast(result.next
           ? `Erledigt. Wieder fällig ${formatDue(result.next.dueDate)}.`
-          : 'Erledigt. 🎉');
+          : 'Erledigt. 🎉', false,
+          async () => {
+            try {
+              await api(`/api/todos/${todo.id}/restore`, 'POST', {});
+              toast('Zurückgeholt.');
+              await refresh();
+            } catch (error) { toast(error.message, true); }
+          });
         await refresh();
       } catch (error) { toast(error.message, true); check.disabled = false; }
     },
@@ -372,6 +413,39 @@ function todoCard(todo, { overdue = false } = {}) {
 
   return el('div', { class: 'card' + (overdue ? ' overdue' : '') },
     el('div', { class: 'todo' }, [check, body, edit]));
+}
+
+/* Abgehaktes mit Knopf zum Zurückholen. */
+function doneCard(todo) {
+  const restore = el('button', {
+    class: 'btn btn-sm', type: 'button', text: '↩ Zurückholen',
+    onclick: async () => {
+      restore.disabled = true;
+      try {
+        const result = await api(`/api/todos/${todo.id}/restore`, 'POST', {});
+        toast(result.removedFollowUp
+          ? 'Zurückgeholt — der Folgetermin wurde entfernt.'
+          : 'Zurückgeholt.');
+        await refresh();
+      } catch (error) { toast(error.message, true); restore.disabled = false; }
+    },
+  });
+
+  const wann = todo.doneAt
+    ? new Date(todo.doneAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    : '';
+
+  return el('div', { class: 'card done-card' }, [
+    el('div', { class: 'todo' }, [
+      el('span', { class: 'done-mark', text: '✓' }),
+      el('div', { class: 'todo-body' }, [
+        el('div', { class: 'todo-title struck', text: todo.title }),
+        metaChips(todo),
+        wann ? el('div', { class: 'todo-note', text: `abgehakt um ${wann} Uhr` }) : null,
+      ]),
+    ]),
+    el('div', { class: 'actions' }, [restore]),
+  ]);
 }
 
 /* Karte für einen Eintrag, bei dem sich das Modell nicht sicher war. */
@@ -772,7 +846,9 @@ function viewFocus() {
   const body = todos.length
     ? el('div', {}, kind === 'inbox'
         ? todos.map(reviewCard)
-        : todos.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })))
+        : kind === 'recent'
+          ? todos.map(doneCard)
+          : todos.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })))
     : el('div', { class: 'empty' }, [
         el('strong', { text: 'Noch nichts hier' }),
         kind === 'list' ? 'Trag oben direkt etwas ein.' : 'Diese Ansicht ist gerade leer.']);
@@ -904,6 +980,16 @@ function viewStart() {
         el('span', { class: 'row-arrow', text: '›' }),
       ]),
     ]),
+  ]));
+
+  /* Rückweg nach einem Fehlgriff - dezent, aber auffindbar. */
+  const recent = state.recentlyDone || [];
+  view.append(el('button', {
+    class: 'recent-link', type: 'button', onclick: () => openFocus('recent'),
+  }, [
+    el('span', { text: '↩ Zuletzt erledigt' }),
+    el('span', { class: 'row-meta',
+      text: recent.length ? `${recent.length} in 24 h` : 'nichts in 24 h' }),
   ]));
 
   return view;
@@ -1157,6 +1243,10 @@ function viewStats() {
 function personEditor(person) {
   const name = el('input', { type: 'text', value: person.name });
   const emoji = el('input', { type: 'text', value: person.emoji, maxlength: '4' });
+  const role = el('input', {
+    type: 'text', value: person.role || '', maxlength: '60',
+    placeholder: 'Rolle, z. B. Mutter · Kind, 8 Jahre · Opa',
+  });
   const skills = el('input', {
     type: 'text', value: (person.skills || []).join(', '),
     placeholder: 'Kompetenzen, z. B. Handwerk, Behörden, Kita',
@@ -1166,7 +1256,7 @@ function personEditor(person) {
     onclick: async () => {
       try {
         await api(`/api/people/${person.id}`, 'PATCH', {
-          name: name.value, emoji: emoji.value,
+          name: name.value, emoji: emoji.value, role: role.value,
           skills: skills.value.split(',').map(s => s.trim()).filter(Boolean),
         });
         toast('Gespeichert.');
@@ -1187,6 +1277,7 @@ function personEditor(person) {
       el('div', { style: 'width:56px' }, emoji),
       el('div', { class: 'grow' }, name),
     ]),
+    el('div', { class: 'row' }, [el('div', { class: 'grow' }, role)]),
     el('div', { class: 'row' }, [el('div', { class: 'grow' }, skills)]),
     el('div', { class: 'row' }, [save, el('span', { class: 'spacer', style: 'flex:1' }), remove]),
   ]);
@@ -1264,7 +1355,8 @@ function viewSettings() {
   });
   view.append(el('section', { class: 'section' }, [
     el('h2', { text: 'Wer gehört zur Familie?' }),
-    el('p', { class: 'hint', text: 'Die Kompetenzen entscheiden, wem die Einordnung eine Aufgabe zuweist.' }),
+    el('p', { class: 'hint', text: 'Rolle und Kompetenzen entscheiden, wem die Einordnung '
+      + 'eine Aufgabe zuweist. „Kind, 8 Jahre" verhindert, dass Behördengänge dort landen.' }),
     ...state.people.map(personEditor),
     el('div', { class: 'row' }, [el('div', { class: 'grow' }, newPersonName), addPerson]),
   ]));
@@ -1692,6 +1784,18 @@ function setupCapture() {
   const form = document.getElementById('capture-form');
   const textarea = document.getElementById('capture-text');
   if (!form || !textarea) return;
+
+  // Geteilter Text oder Verknuepfung „Einwerfen": Feld fuellen und oeffnen.
+  let shared = '';
+  try {
+    shared = localStorage.getItem(SHARED_KEY) || '';
+    if (shared) localStorage.removeItem(SHARED_KEY);
+  } catch { /* egal */ }
+  if (shared || window.__openCapture) {
+    if (shared) textarea.value = shared;
+    form.classList.add('open');
+    setTimeout(() => textarea.focus(), 150);
+  }
 
   // Der lange Beispielsatz braucht am Telefon zwei Zeilen und passt damit
   // nicht in die zugeklappte Eingabe.

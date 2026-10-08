@@ -56,6 +56,7 @@ def _state() -> dict:
     settings = db.get_settings()
     return {
         "todos": db.get_todos(),
+        "recentlyDone": db.recently_done(24),
         "lists": db.get_lists(),
         "people": db.get_people(),
         "settings": {k: v for k, v in settings.items() if k != "calendar_token"},
@@ -179,6 +180,26 @@ def _create_todo(payload: dict) -> dict:
     })}
 
 
+def _restore(todo_id: str) -> dict:
+    """Ein versehentlich abgehaktes Todo zurückholen.
+
+    Bei wiederkehrenden Aufgaben entsteht beim Abhaken der nächste Termin.
+    Der muss mit verschwinden, sonst steht die Aufgabe doppelt da.
+    """
+    todo = db.get_todo(todo_id)
+    if not todo:
+        raise ApiError("Todo nicht gefunden.", 404)
+    if todo["status"] != "done":
+        return {"todo": todo, "removedFollowUp": False}
+
+    follow_up = db.follow_up_of(todo_id)
+    if follow_up:
+        db.delete_todo(follow_up["id"])
+
+    return {"todo": db.update_todo(todo_id, {"status": "open"}),
+            "removedFollowUp": bool(follow_up)}
+
+
 def _confirm(todo_id: str, payload: dict) -> dict:
     todo = db.get_todo(todo_id)
     if not todo:
@@ -251,6 +272,7 @@ def _repeat_next(todo: dict) -> dict | None:
         "tags": todo.get("tags", []),
         "engine": todo.get("engine", ""),
         "repeat": rule,
+        "createdFrom": todo["id"],
     })
 
 
@@ -299,6 +321,8 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", r"^/api/capture$", lambda m, p: _capture(p)),
     ("POST", r"^/api/todos$", lambda m, p: _create_todo(p)),
     ("POST", r"^/api/todos/([\w-]+)/confirm$", lambda m, p: _confirm(m.group(1), p)),
+    ("POST", r"^/api/todos/([\w-]+)/restore$", lambda m, p: _restore(m.group(1))),
+    ("GET", r"^/api/recent$", lambda m, p: {"todos": db.recently_done(24)}),
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
     ("DELETE", r"^/api/todos/([\w-]+)$",
      lambda m, p: (db.delete_todo(m.group(1)), {"ok": True})[1]),
@@ -311,7 +335,7 @@ ROUTES: list[tuple[str, str, object]] = [
      lambda m, p: (db.delete_list(m.group(1)), {"ok": True})[1]),
     ("POST", r"^/api/people$",
      lambda m, p: {"person": db.create_person(p.get("name", ""), p.get("emoji", "🙂"),
-                                              p.get("skills", []))}),
+                                              p.get("skills", []), p.get("role", ""))}),
     ("PATCH", r"^/api/people/([\w-]+)$", lambda m, p: {"person": db.update_person(m.group(1), p)}),
     ("DELETE", r"^/api/people/([\w-]+)$",
      lambda m, p: (db.delete_person(m.group(1)), {"ok": True})[1]),
@@ -376,7 +400,9 @@ def json_response(data, status: int = 200, headers=None) -> Response:
 
 
 def serve_static(path: str) -> Response:
-    if path in ("/", ""):
+    # /share ist das Ziel der Android-Teilen-Funktion und liefert die App aus;
+    # den geteilten Text liest die Oberflaeche aus der Adresse.
+    if path in ("/", "", "/share"):
         path = "/index.html"
     target = (WEB_DIR / path.lstrip("/")).resolve()
     if not str(target).startswith(str(WEB_DIR.resolve())) or not target.is_file():
@@ -449,8 +475,8 @@ def _handle(request: Request) -> Response:
     # Die Login-Seite und ihre Bausteine müssen ohne Anmeldung laden.
     if request.method in ("GET", "HEAD") and not path.startswith("/api/"):
         if not auth.is_signed_in(request.cookie) and path not in (
-                "/", "/index.html", "/style.css", "/app.js", "/icon.svg",
-                "/manifest.webmanifest", "/sw.js"):
+                "/", "/share", "/index.html", "/style.css", "/app.js", "/icon.svg",
+                "/icon-192.png", "/icon-512.png", "/manifest.webmanifest", "/sw.js"):
             return Response(404, b"Nicht gefunden", "text/plain; charset=utf-8")
         return serve_static(path)
 
