@@ -341,11 +341,15 @@ const soonTodos = () => openTodos().filter(t => {
 const listById = id => state.lists.find(l => l.id === id);
 const personById = id => state.people.find(p => p.id === id);
 
-/* Wünsche und Medien sind Merklisten: kein Termin, keine Überfälligkeit.
-   Ohne diese Unterscheidung würde jeder Buchtipp irgendwann als überfällig
-   erscheinen. */
+/* Wünsche, Einkäufe und Medien sind Sammlungen: kein Termin, keine
+   Überfälligkeit. Ohne diese Unterscheidung würde jeder Buchtipp irgendwann
+   als überfällig erscheinen.
+
+   Termine zählen dagegen sehr wohl mit - ein täglich wiederkehrender Eintrag
+   steht heute an, egal ob er auf der Aufgaben- oder der Terminliste liegt. */
 const listKind = id => (listById(id) || {}).kind || 'tasks';
-const isTask = todo => listKind(todo.listId) === 'tasks';
+const DATED_KINDS = new Set(['tasks', 'appointments']);
+const isTask = todo => DATED_KINDS.has(listKind(todo.listId));
 
 const todayTodos = () => openTodos().filter(
   t => isTask(t) && (daysUntil(t.dueDate) ?? 99) <= 0);
@@ -661,7 +665,7 @@ function viewLists() {
   for (const list of state.lists.slice()
       .filter(l => l.inOverview !== false)
       .sort((a, b) => {
-        const rang = { tasks: 0, appointments: 1, wishes: 2, media: 3 };
+        const rang = { tasks: 0, appointments: 1, shopping: 2, wishes: 3, media: 4 };
         return (rang[a.kind] ?? 9) - (rang[b.kind] ?? 9) || a.sort - b.sort;
       })) {
     const listItems = items.filter(t => t.listId === list.id);
@@ -669,7 +673,7 @@ function viewLists() {
     // Trennlinie, sobald eine neue Art beginnt.
     if (letzteArt !== null && list.kind !== letzteArt) {
       groups.append(el('div', { class: 'kind-divider' },
-        el('span', { text: { wishes: 'Wunschzettel', media: 'Merken',
+        el('span', { text: { wishes: 'Wunschzettel', media: 'Merken', shopping: 'Einkauf',
                              appointments: 'Termine' }[list.kind] || 'Weiteres' })));
     }
     letzteArt = list.kind;
@@ -833,6 +837,46 @@ function viewFocus() {
       { label: area.name },
     ]);
 
+    if (id === 'appointments') {
+      const alle = kindTodos('appointments');
+      const offen = alle.filter(t => !t.dueDate);
+      const fest = alle.filter(t => t.dueDate)
+        .sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+      const deployment = state.deployment || {};
+      const suffix = deployment.authEnabled && deployment.calendarToken
+        ? `?token=${encodeURIComponent(deployment.calendarToken)}` : '';
+
+      return el('div', {}, [
+        el('div', { class: 'focus-head' }, [
+          crumbs,
+          el('h2', { text: `${area.emoji} ${area.name}` }),
+        ]),
+        quickAdd(lists.length ? lists[0].id : null),
+        el('section', { class: 'home-section' }, [
+          el('h2', { text: 'Noch zu vereinbaren' }),
+          el('p', { class: 'hint',
+            text: 'Anrufen, Termin holen — steht noch kein Datum fest.' }),
+          offen.length
+            ? el('div', {}, offen.map(t => todoCard(t)))
+            : el('p', { class: 'hint', text: 'Nichts offen.' }),
+        ]),
+        el('section', { class: 'home-section' }, [
+          el('h2', { text: 'Steht fest' }),
+          el('p', { class: 'hint', text: 'Diese Termine stehen im Kalender-Abo.' }),
+          fest.length
+            ? el('div', {}, fest.map(t => todoCard(t)))
+            : el('p', { class: 'hint', text: 'Noch keine festen Termine.' }),
+        ]),
+        el('section', { class: 'home-section' }, [
+          el('h2', { text: 'Kalender abonnieren' }),
+          el('p', { class: 'hint',
+            text: 'Diese Adresse im Kalender eintragen — feste Termine erscheinen '
+                + 'dann automatisch, auch auf dem Handy.' }),
+          el('code', { class: 'url', text: `${location.origin}/calendar.ics${suffix}` }),
+        ]),
+      ]);
+    }
+
     if (id === 'repeating') {
       const todos = repeatingTodos();
       return el('div', {}, [
@@ -921,27 +965,24 @@ function viewFocus() {
 const AREAS = [
   { id: 'tasks', name: 'Todos', emoji: '📋',
     hint: 'Haushalt, Einkauf, Papierkram …' },
+  { id: 'shopping', name: 'Einkauf', emoji: '🛒',
+    hint: 'Täglicher Bedarf, Baumarkt, persönlich …' },
   { id: 'wishes', name: 'Wunschzettel', emoji: '🎁',
     hint: 'Geschenkideen je Person' },
   { id: 'media', name: 'Merken', emoji: '🎬',
     hint: 'Bücher, Filme, Podcasts' },
   { id: 'repeating', name: 'Regelmäßig', emoji: '↻',
     hint: 'Was immer wiederkommt' },
-  { id: 'calendar', name: 'Kalender', emoji: '📅',
-    hint: 'Termine und Wochenplan' },
+  { id: 'appointments', name: 'Termine', emoji: '📅',
+    hint: 'Zu vereinbaren und was feststeht' },
 ];
 
 function areaTodos(areaId) {
   if (areaId === 'repeating') return repeatingTodos();
-  if (areaId === 'calendar') return openTodos().filter(t => isTask(t) && t.dueDate);
-  return kindTodos(areaId === 'tasks' ? 'tasks' : areaId)
-    .concat(areaId === 'tasks' ? kindTodos('appointments') : []);
+  return kindTodos(areaId);
 }
 
 function areaLists(areaId) {
-  if (areaId === 'tasks') {
-    return state.lists.filter(l => l.kind === 'tasks' || l.kind === 'appointments');
-  }
   return state.lists.filter(l => l.kind === areaId);
 }
 
@@ -1703,7 +1744,8 @@ function renderAssign() {
   // Nach Art gruppiert statt alles in einer langen Reihe - der Browser setzt
   // dabei selbst eine Trennlinie mit Überschrift.
   for (const [kind, titel] of [['tasks', 'Aufgaben'], ['appointments', 'Termine'],
-                               ['wishes', 'Wunschzettel'], ['media', 'Merken']]) {
+                               ['shopping', 'Einkauf'], ['wishes', 'Wunschzettel'],
+                               ['media', 'Merken']]) {
     const darin = state.lists.filter(l => l.kind === kind);
     if (!darin.length) continue;
     const gruppe = el('optgroup', { label: titel });
@@ -1960,7 +2002,8 @@ function setupFab() {
 /* ---------- Start ---------- */
 
 document.getElementById('capture-form').addEventListener('submit', submitCapture);
-for (const [id, kind] of [['capture-wish', 'wishes'], ['capture-media', 'media']]) {
+for (const [id, kind] of [['capture-shop', 'shopping'], ['capture-wish', 'wishes'],
+                          ['capture-media', 'media']]) {
   const button = document.getElementById(id);
   if (button) button.addEventListener('click', () => submitCapture(null, kind));
 }

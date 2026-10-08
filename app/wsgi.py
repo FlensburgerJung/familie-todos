@@ -145,6 +145,12 @@ def _capture(payload: dict) -> dict:
         result["minutes"] = 0
         result["repeat"] = ""
         result["assignee"] = ""
+    elif target and target.get("kind") == "appointments":
+        # Auf der Terminliste heisst „kein Datum" = noch zu vereinbaren. Ein
+        # aus dem Zeithorizont errechnetes Datum wuerde das verwischen.
+        genannt = (raw_due or "").strip() if (raw_due := result.get("_raw_due")) else ""
+        if not genannt:
+            result["due_date"] = None
 
     todo = db.create_todo({
         "title": result["title"], "rawInput": text, "note": result["note"],

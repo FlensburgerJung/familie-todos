@@ -161,12 +161,41 @@ def _migrate_data() -> None:
         if "wunsch" in text or "geschenk" in text:
             store.execute("UPDATE lists SET kind='wishes' WHERE id=?", (row["id"],))
 
+    # Einkaufszettel aufschluesseln: eine Ebene mit mehreren Zetteln statt
+    # einer einzigen Liste. Laeuft nur einmal - danach gibt es shopping-Listen.
+    if not store.one("SELECT 1 AS x FROM lists WHERE kind='shopping' LIMIT 1"):
+        row = store.one("SELECT COALESCE(MAX(sort), 0) AS m FROM lists")
+        rang = (row["m"] or 0) + 1
+
+        # Den vorhandenen Einkauf behalten und zum taeglichen Bedarf machen -
+        # die Eintraege darin bleiben, wo sie sind.
+        if store.one("SELECT 1 AS x FROM lists WHERE id='einkauf'"):
+            store.execute(
+                "UPDATE lists SET kind='shopping', name=?, emoji=?, description=?"
+                " WHERE id='einkauf'",
+                ("Täglicher Bedarf", "🛒", "Lebensmittel und was im Haushalt ausgeht"))
+
+        weitere = [
+            ("einkauf-baumarkt", "Baumarkt", "🔩", "Werkzeug, Material, Garten"),
+            ("einkauf-elektro", "Elektro", "🔌", "Geräte, Kabel, Zubehör"),
+            ("einkauf-langfristig", "Langfristig", "🗓", "Größere Anschaffungen, nichts Eiliges"),
+        ]
+        for person in store.query("SELECT id, name FROM people ORDER BY created_at"):
+            weitere.append((f"einkauf-{person['id']}", f"{person['name']} persönlich",
+                            "👤", f"Was {person['name']} persönlich braucht"))
+
+        for lid, name, emoji, beschreibung in weitere:
+            store.execute(
+                "INSERT INTO lists (id, name, emoji, description, keywords, kind,"
+                " in_overview, sort, created_at) VALUES (?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT (id) DO NOTHING",
+                (lid, name, emoji, beschreibung, "[]", "shopping", 0, rang, now_ts()))
+            rang += 1
+
     # Sammellisten fluten die Gesamtuebersicht mit Einzelposten: ein
     # Einkaufszettel hat zwanzig Zeilen, die dort nichts zu suchen haben.
     store.execute(
-        "UPDATE lists SET in_overview=0 WHERE kind IN ('wishes', 'media')")
-    store.execute(
-        "UPDATE lists SET in_overview=0 WHERE id='einkauf'")
+        "UPDATE lists SET in_overview=0 WHERE kind IN ('wishes', 'media', 'shopping')")
 
     # Eine Terminliste, falls noch keine da ist.
     if not store.one("SELECT 1 AS x FROM lists WHERE kind='appointments' LIMIT 1"):

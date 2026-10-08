@@ -32,6 +32,9 @@ LIST_KINDS = {
     # Termine haben eine feste Uhrzeit und gehören in den Familienkalender -
     # deshalb eine eigene Art, auch wenn sie technisch Aufgaben mit Datum sind.
     "appointments": {"label": "Termine", "dated": True},
+    # Einkaufszettel: Posten, keine Aufgaben. "Milch" hat keine Frist und
+    # dauert keine 20 Minuten.
+    "shopping": {"label": "Einkauf", "dated": False},
     "wishes": {"label": "Wünsche", "dated": False},
     "media": {"label": "Bücher, Filme, Podcasts", "dated": False},
 }

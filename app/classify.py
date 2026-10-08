@@ -109,6 +109,10 @@ Kind keine Behördengänge, Rechnungen oder Autoreparaturen. Im Zweifel leer las
 Datum um. Sonst leer lassen - dann setzt die App den Zeithorizont ein.
 - Nennt der Einwurf eine feste Uhrzeit oder einen Termin mit anderen ("Zahnarzt am \
 15.10. um 14 Uhr", "Elternabend Dienstag 19 Uhr"), gehört er in die Terminliste.
+- Soll etwas gekauft werden, gehört es auf den passenden Einkaufszettel - nicht \
+in eine Aufgabenliste. Lebensmittel und Alltägliches auf den täglichen Bedarf, \
+Werkzeug und Material in den Baumarkt, Geräte und Kabel zu Elektro, Größeres ohne \
+Eile zu "Langfristig". Nennt der Text eine Person, deren persönlicher Zettel.
 - Merklisten (Wünsche, Bücher/Filme/Podcasts) sind keine Aufgaben: dort `due_date`, \
 `minutes` und `repeat` leer bzw. 0 lassen und niemanden zuweisen. Ein Buchtipp hat \
 keine Frist.
@@ -147,6 +151,8 @@ def _context_block(lists: list[dict], people: list[dict], horizon: str) -> str:
         kind = entry.get("kind", "tasks")
         if kind == "appointments":
             line += " [Terminliste: alles mit fester Uhrzeit gehört hierher]"
+        elif kind == "shopping":
+            line += " [Einkaufszettel: einzelne Posten, kein Termin]"
         elif kind != "tasks":
             line += f" [Merkliste ohne Termin: {LIST_KINDS[kind]['label']}]"
         if keywords:
@@ -230,6 +236,9 @@ def _normalize(raw: dict, horizon: str, lists: list[dict], people: list[dict]) -
         "new_list_emoji": text("new_list_emoji")[:4] or "📋",
         "assignee": assignee,
         "due_date": clamp_due_date(text("due_date"), horizon),
+        # Unveraendert mitgefuehrt: nur so laesst sich spaeter unterscheiden,
+        # ob ein Datum im Text stand oder aus dem Zeithorizont stammt.
+        "_raw_due": text("due_date"),
         "priority": priority,
         "repeat": repeat,
         "minutes": minutes,
