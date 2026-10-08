@@ -581,8 +581,8 @@ function viewOverdue() {
    Eine Übersicht, von der aus man in jede Teilansicht springt: erst was
    drängt, dann wer was hat, dann die Sammlungen ohne Termindruck. */
 
-function openFocus(kind, id) {
-  state.focus = { kind, id };
+function openFocus(kind, id, from) {
+  state.focus = { kind, id, from };
   render();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -602,6 +602,53 @@ function viewFocus() {
   const { kind, id } = state.focus;
   let title, hint, todos;
 
+  /* Kategorie-Ebene: zeigt die Listen darin als Kacheln, keine Einträge. */
+  if (kind === 'area') {
+    const area = AREAS.find(a => a.id === id);
+    const lists = areaLists(id);
+    const back = el('button', {
+      class: 'btn btn-ghost btn-sm back', type: 'button', text: '‹ Start',
+      onclick: () => { state.focus = null; render(); },
+    });
+
+    if (id === 'repeating') {
+      const todos = repeatingTodos();
+      return el('div', {}, [
+        el('div', { class: 'focus-head' }, [
+          back,
+          el('h2', { text: `${area.emoji} ${area.name}` }),
+          el('p', { class: 'hint',
+            text: 'Nach dem Abhaken entsteht jeweils der nächste Termin.' }),
+        ]),
+        todos.length
+          ? el('div', {}, todos.map(t => todoCard(t)))
+          : el('div', { class: 'empty' }, [
+              el('strong', { text: 'Noch nichts Regelmäßiges' }),
+              'Wirf etwas wie „Müll jeden Dienstag rausstellen" ein.']),
+      ]);
+    }
+
+    return el('div', {}, [
+      el('div', { class: 'focus-head' }, [
+        back,
+        el('h2', { text: `${area.emoji} ${area.name}` }),
+        el('p', { class: 'hint', text: area.hint }),
+      ]),
+      el('div', { class: 'big-tiles' }, lists.map(list => {
+        const count = openTodos().filter(t => t.listId === list.id);
+        return el('button', {
+          class: 'big-tile' + (count.length ? '' : ' is-empty'), type: 'button',
+          onclick: () => openFocus('list', list.id, id),
+        }, [
+          el('span', { class: 'big-emoji', text: list.emoji }),
+          el('span', { class: 'big-name', text: list.name }),
+          el('span', { class: 'big-count',
+            text: count.length ? String(count.length) : 'leer' }),
+        ]);
+      })),
+    ]);
+  }
+
   if (kind === 'person') {
     const person = personById(id);
     title = person ? `${person.emoji} ${person.name}` : 'Person';
@@ -619,9 +666,15 @@ function viewFocus() {
     todos = spec.get();
   }
 
+  // Aus einer Liste führt der Weg zurück in ihre Kategorie, nicht zum Start.
+  const parent = state.focus.from ? AREAS.find(a => a.id === state.focus.from) : null;
   const back = el('button', {
-    class: 'btn btn-ghost btn-sm back', type: 'button', text: '‹ Start',
-    onclick: () => { state.focus = null; render(); },
+    class: 'btn btn-ghost btn-sm back', type: 'button',
+    text: parent ? `‹ ${parent.name}` : '‹ Start',
+    onclick: () => {
+      if (parent) openFocus('area', parent.id);
+      else { state.focus = null; render(); }
+    },
   });
 
   const body = todos.length
@@ -641,6 +694,35 @@ function viewFocus() {
   ]);
 }
 
+/* Die fünf Bereiche der obersten Ebene. Dahinter liegen jeweils die
+   einzelnen Listen - erst Kategorie, dann Liste, dann Einträge. */
+const AREAS = [
+  { id: 'tasks', name: 'Todos', emoji: '📋',
+    hint: 'Haushalt, Einkauf, Papierkram …' },
+  { id: 'wishes', name: 'Wunschzettel', emoji: '🎁',
+    hint: 'Geschenkideen je Person' },
+  { id: 'media', name: 'Merken', emoji: '🎬',
+    hint: 'Bücher, Filme, Podcasts' },
+  { id: 'repeating', name: 'Regelmäßig', emoji: '↻',
+    hint: 'Was immer wiederkommt' },
+  { id: 'calendar', name: 'Kalender', emoji: '📅',
+    hint: 'Termine und Wochenplan' },
+];
+
+function areaTodos(areaId) {
+  if (areaId === 'repeating') return repeatingTodos();
+  if (areaId === 'calendar') return openTodos().filter(t => isTask(t) && t.dueDate);
+  return kindTodos(areaId === 'tasks' ? 'tasks' : areaId)
+    .concat(areaId === 'tasks' ? kindTodos('appointments') : []);
+}
+
+function areaLists(areaId) {
+  if (areaId === 'tasks') {
+    return state.lists.filter(l => l.kind === 'tasks' || l.kind === 'appointments');
+  }
+  return state.lists.filter(l => l.kind === areaId);
+}
+
 function viewStart() {
   if (state.focus) return viewFocus();
 
@@ -649,9 +731,8 @@ function viewStart() {
   const overdue = overdueTodos().filter(isTask);
   const inbox = inboxTodos();
 
-  /* 1. Was drängt - eine schmale Zeile, kein Kachelblock. Sie soll auffallen,
-        wenn etwas brennt, und sonst wenig Platz nehmen. */
-  const urgent = el('div', { class: 'urgent' }, [
+  /* Was drängt - schmal, färbt sich nur bei Bedarf. */
+  view.append(el('div', { class: 'urgent' }, [
     el('button', {
       class: 'urgent-item' + (overdue.length ? ' alert' : ''), type: 'button',
       onclick: () => openFocus('overdue'),
@@ -673,58 +754,48 @@ function viewStart() {
       el('span', { class: 'urgent-count', text: String(inbox.length) }),
       el('span', { text: 'zu prüfen' }),
     ]),
-  ]);
-  view.append(urgent);
-
-  /* 2. Bereiche - je eine Kachel pro Aufgaben- und Terminliste. */
-  const countOf = id => openTodos().filter(t => t.listId === id);
-
-  const bigTile = (list) => {
-    const todos = countOf(list.id);
-    const minutes = sumMinutes(todos);
-    return el('button', {
-      class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
-      onclick: () => openFocus('list', list.id),
-    }, [
-      el('span', { class: 'big-emoji', text: list.emoji }),
-      el('span', { class: 'big-name', text: list.name }),
-      el('span', { class: 'big-count',
-        text: todos.length
-          ? (minutes ? `${todos.length} · ${formatEffort(minutes)}` : `${todos.length}`)
-          : 'leer' }),
-    ]);
-  };
-
-  const areaLists = state.lists.filter(
-    l => l.kind === 'tasks' || l.kind === 'appointments');
-  // Listen mit Inhalt zuerst, damit das Volle oben steht.
-  areaLists.sort((a, b) => countOf(b.id).length - countOf(a.id).length);
-
-  view.append(el('section', { class: 'home-section' }, [
-    el('h2', { text: 'Bereiche' }),
-    el('div', { class: 'big-tiles' }, areaLists.map(bigTile)),
   ]));
 
-  /* 3. Wer - Aufgaben je Person, plus das Unverteilte. */
-  const unassigned = unassignedTodos();
-  const personRow = (person) => {
-    const todos = personTodos(person.id);
-    return el('button', {
-      class: 'row-link', type: 'button',
-      onclick: () => openFocus('person', person.id),
-    }, [
-      el('span', { class: 'row-emoji', text: person.emoji }),
-      el('span', { class: 'row-name', text: person.name }),
-      el('span', { class: 'row-meta',
-        text: todos.length ? `${todos.length} · ${formatEffort(sumMinutes(todos))}` : '—' }),
-      el('span', { class: 'row-arrow', text: '›' }),
-    ]);
-  };
+  /* Die fünf Bereiche. */
+  view.append(el('section', { class: 'home-section' }, [
+    el('div', { class: 'big-tiles' }, AREAS.map(area => {
+      const todos = areaTodos(area.id);
+      const minutes = area.id === 'tasks' ? sumMinutes(todos) : 0;
+      return el('button', {
+        class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
+        onclick: () => {
+          if (area.id === 'calendar') { state.tab = 'week'; state.focus = null; render(); }
+          else openFocus('area', area.id);
+        },
+      }, [
+        el('span', { class: 'big-emoji', text: area.emoji }),
+        el('span', { class: 'big-name', text: area.name }),
+        el('span', { class: 'big-count',
+          text: todos.length
+            ? (minutes ? `${todos.length} · ${formatEffort(minutes)}` : `${todos.length}`)
+            : area.hint }),
+      ]);
+    })),
+  ]));
 
+  /* Wer macht was. */
+  const unassigned = unassignedTodos();
   view.append(el('section', { class: 'home-section' }, [
     el('h2', { text: 'Wer macht was' }),
     el('div', { class: 'rows' }, [
-      ...state.people.map(personRow),
+      ...state.people.map(person => {
+        const todos = personTodos(person.id);
+        return el('button', {
+          class: 'row-link', type: 'button',
+          onclick: () => openFocus('person', person.id),
+        }, [
+          el('span', { class: 'row-emoji', text: person.emoji }),
+          el('span', { class: 'row-name', text: person.name }),
+          el('span', { class: 'row-meta',
+            text: todos.length ? `${todos.length} · ${formatEffort(sumMinutes(todos))}` : '—' }),
+          el('span', { class: 'row-arrow', text: '›' }),
+        ]);
+      }),
       el('button', {
         class: 'row-link free' + (unassigned.length ? ' has' : ''), type: 'button',
         onclick: () => openFocus('unassigned'),
@@ -735,52 +806,6 @@ function viewStart() {
           text: unassigned.length
             ? `${unassigned.length} · ${formatEffort(sumMinutes(unassigned))}`
             : 'alles verteilt' }),
-        el('span', { class: 'row-arrow', text: '›' }),
-      ]),
-    ]),
-  ]));
-
-  /* 4. Wunschzettel - je einer pro Person. */
-  const wishLists = state.lists.filter(l => l.kind === 'wishes');
-  if (wishLists.length) {
-    view.append(el('section', { class: 'home-section' }, [
-      el('h2', { text: 'Wunschzettel' }),
-      el('div', { class: 'rows' }, wishLists.map(list => el('button', {
-        class: 'row-link', type: 'button',
-        onclick: () => openFocus('list', list.id),
-      }, [
-        el('span', { class: 'row-emoji', text: list.emoji }),
-        el('span', { class: 'row-name', text: list.name }),
-        el('span', { class: 'row-meta',
-          text: countOf(list.id).length ? String(countOf(list.id).length) : '—' }),
-        el('span', { class: 'row-arrow', text: '›' }),
-      ]))),
-    ]));
-  }
-
-  /* 5. Merken - alles ohne Termindruck. */
-  const mediaLists = state.lists.filter(l => l.kind === 'media');
-  const repeating = repeatingTodos();
-  view.append(el('section', { class: 'home-section' }, [
-    el('h2', { text: 'Merken' }),
-    el('div', { class: 'rows' }, [
-      ...mediaLists.map(list => el('button', {
-        class: 'row-link', type: 'button',
-        onclick: () => openFocus('list', list.id),
-      }, [
-        el('span', { class: 'row-emoji', text: list.emoji }),
-        el('span', { class: 'row-name', text: list.name }),
-        el('span', { class: 'row-meta',
-          text: countOf(list.id).length ? String(countOf(list.id).length) : '—' }),
-        el('span', { class: 'row-arrow', text: '›' }),
-      ])),
-      el('button', {
-        class: 'row-link', type: 'button', onclick: () => openFocus('repeating'),
-      }, [
-        el('span', { class: 'row-emoji', text: '↻' }),
-        el('span', { class: 'row-name', text: 'Regelmäßige Aufgaben' }),
-        el('span', { class: 'row-meta',
-          text: repeating.length ? String(repeating.length) : '—' }),
         el('span', { class: 'row-arrow', text: '›' }),
       ]),
     ]),
@@ -1407,6 +1432,36 @@ function renderHorizons() {
   }
 }
 
+/* Liste und Person von Hand wählen. Leer gelassen entscheidet die Einordnung -
+   das bleibt der Normalfall, die Auswahl ist für die Fälle, in denen man es
+   ohnehin schon weiß (Wunschzettel, Einkaufsliste). */
+function renderAssign() {
+  const listSelect = document.getElementById('capture-list');
+  const personSelect = document.getElementById('capture-person');
+  if (!listSelect || !personSelect) return;
+
+  const keepList = listSelect.value;
+  const keepPerson = personSelect.value;
+
+  listSelect.textContent = '';
+  listSelect.append(el('option', { value: '', text: '📥 Liste: automatisch' }));
+  for (const list of state.lists) {
+    listSelect.append(el('option', {
+      value: list.id, text: `${list.emoji} ${list.name}`,
+      selected: list.id === keepList,
+    }));
+  }
+
+  personSelect.textContent = '';
+  personSelect.append(el('option', { value: '', text: '🙋 Wer: automatisch' }));
+  for (const person of state.people) {
+    personSelect.append(el('option', {
+      value: person.id, text: `${person.emoji} ${person.name}`,
+      selected: person.id === keepPerson,
+    }));
+  }
+}
+
 function renderBadge() {
   const badge = document.getElementById('engine-badge');
   const engine = state.engineChain[0] || 'heuristic';
@@ -1434,6 +1489,7 @@ function renderBadge() {
 function render() {
   renderTabs();
   renderHorizons();
+  renderAssign();
   renderBadge();
   const view = document.getElementById('view');
   view.textContent = '';
@@ -1463,15 +1519,26 @@ async function submitCapture(event) {
   button.textContent = 'Sortiere…';
   hint.innerHTML = '<span class="spin"></span> Wird eingeordnet…';
 
-  const payload = { text, horizon: state.horizon };
+  const listSelect = document.getElementById('capture-list');
+  const personSelect = document.getElementById('capture-person');
+  const payload = {
+    text,
+    horizon: state.horizon,
+    listId: listSelect ? listSelect.value : '',
+    assigneeId: personSelect ? personSelect.value : '',
+  };
   try {
+    const chosenList = payload.listId;
     const result = await apiWithPatience('/api/capture', attempt => {
       hint.innerHTML = '<span class="spin"></span> Server wacht auf, '
                      + `Versuch ${attempt + 1} …`;
     }, 'POST', payload);
     textarea.value = '';
+    // Auswahl zurücksetzen, damit der nächste Einwurf wieder automatisch geht.
+    if (listSelect) listSelect.value = '';
+    if (personSelect) personSelect.value = '';
     const list = listById(result.todo.listId);
-    if (result.autoFiled) {
+    if (result.autoFiled || chosenList) {
       toast(`→ ${list ? list.emoji + ' ' + list.name : 'einsortiert'}, ${formatDue(result.todo.dueDate)}`);
     } else {
       state.tab = 'start';

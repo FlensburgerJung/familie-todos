@@ -84,14 +84,32 @@ def _capture(payload: dict) -> dict:
 
     cfg = config.load()
     lists, people = db.get_lists(), db.get_people()
+
+    # Eine ausdrückliche Wahl beim Einwerfen schlägt die Einordnung. Dann muss
+    # das Modell nur noch Titel, Dauer und Termin herausarbeiten.
+    chosen_list = (payload.get("listId") or "").strip()
+    chosen_person = (payload.get("assigneeId") or "").strip()
+    if chosen_list and not any(entry["id"] == chosen_list for entry in lists):
+        chosen_list = ""
+    if chosen_person and not any(person["id"] == chosen_person for person in people):
+        chosen_person = ""
+
     result, engine, problems = classify.classify(text, horizon, lists, people, cfg)
+
+    if chosen_list:
+        result["list"] = chosen_list
+        result["new_list"] = ""
+        result["question"] = ""
+        result["confidence"] = 1.0
+    if chosen_person:
+        result["assignee"] = chosen_person
 
     try:
         threshold = float(cfg.get("confidence_threshold", 0.7))
     except (TypeError, ValueError):
         threshold = 0.7
 
-    if cfg.get("auto_assign") != "1":
+    if cfg.get("auto_assign") != "1" and not chosen_person:
         result["assignee"] = ""
 
     confident = (result["confidence"] >= threshold and bool(result["list"])

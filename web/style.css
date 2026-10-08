@@ -983,3 +983,25 @@ a.btn { text-decoration: none; display: inline-block; }
   line-height: 1.35;
   margin-bottom: 14px;
 }
+
+/* Zuordnung von Hand im Eingabefeld */
+.capture-assign {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+.capture-assign select {
+  font-size: 14px;
+  padding: 8px 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.capture-assign select:valid { color: var(--text); }
+
+@media (max-width: 640px) {
+  .capture .capture-assign { display: none; }
+  .capture.open .capture-assign { display: grid; }
+  .capture-assign select { min-height: 42px; font-size: 16px; }
+  .capture-assign { grid-template-columns: 1fr; gap: 6px; }
+}

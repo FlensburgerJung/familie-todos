@@ -208,13 +208,21 @@ angetippt hat.
 - **Start** — die Schaltzentrale, von oben nach unten:
   1. Eingabefeld zum Reinwerfen
   2. schmale Statuszeile: überfällig · heute · zu prüfen
-  3. **Bereiche** — eine Kachel je Aufgaben- und Terminliste, volle zuerst
+  3. **fünf Bereiche** als Kacheln: Todos · Wunschzettel · Merken ·
+     Regelmäßig · Kalender
   4. **Wer macht was** — je Person, plus „Frei zu vergeben"
-  5. **Wunschzettel** — je einer pro Person
-  6. **Merken** — Bücher/Filme/Podcasts und die regelmäßigen Aufgaben
 
-  Jede Kachel und jede Zeile öffnet ihre Liste; „‹ Start" führt zurück.
-  Einstellungen liegen bewusst außerhalb, im Tab „Mehr".
+  Die Bereiche sind zweistufig: Ein Tipp auf *Todos* zeigt die einzelnen
+  Listen (Haushalt, Einkauf, Termine …), ein weiterer deren Einträge.
+  „‹ Start" bzw. „‹ Todos" führt zurück. Einstellungen liegen bewusst
+  außerhalb, im Tab „Mehr".
+
+### Von Hand zuordnen
+
+Unter dem Eingabefeld stehen zwei Auswahlfelder: **Liste** und **Wer**. Bleiben
+sie auf „automatisch", entscheidet das Modell. Wählst du etwas aus, gilt das —
+praktisch bei Wunschzetteln und Einkaufslisten, wo man es ohnehin weiß. Der
+Eintrag landet dann direkt in der Liste statt in der Inbox.
 - **Listen** — alles Offene, nach Bereich gruppiert.
 - **Woche** — sieben Tage untereinander, mit ‹ › durch die Wochen. Was vor der
   laufenden Woche liegt, steht oben unter „Liegengeblieben".
