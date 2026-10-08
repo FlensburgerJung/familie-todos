@@ -269,8 +269,15 @@ nav.tabs button[aria-selected="true"] {
   font-weight: 700;
   color: transparent;
 }
-.check:hover::before, .check:active::before { border-color: var(--accent); }
-.check:hover::after, .check:active::after { color: var(--accent); }
+/* Nur bei echtem Zeiger. Am Telefon bleibt :hover nach dem Antippen am
+   Element kleben - zeichnet die Liste neu, erbt der nachgerückte Eintrag den
+   Haken und sieht aus, als wäre er erledigt. */
+@media (hover: hover) {
+  .check:hover::before { border-color: var(--accent); }
+  .check:hover::after { color: var(--accent); }
+}
+.check:active::before { border-color: var(--accent); }
+.check:active::after { color: var(--accent); }
 
 .todo-body { flex: 1; min-width: 0; }
 .todo-title { font-weight: 500; overflow-wrap: anywhere; }
@@ -1322,3 +1329,26 @@ h1 > #home-link:hover { color: var(--accent); }
 .add-list { margin-top: 14px; }
 .add-list .quick-add { margin-bottom: 0; }
 .quick-emoji { flex: 0 0 auto; width: 56px; text-align: center; }
+
+/* Auf Geräten ohne Zeiger bleibt ein :hover nach dem Antippen haften und
+   wandert beim Neuzeichnen auf das nachgerückte Element. Deshalb hier
+   sämtliche Hover-Hervorhebungen zurücknehmen - das Antippen selbst bleibt
+   über :active sichtbar. */
+@media (hover: none) {
+  .check:hover::before { border-color: var(--border); }
+  .check:hover::after { color: transparent; }
+  .big-tile:hover,
+  .row-link:hover,
+  .urgent-item:hover,
+  .recent-link:hover { border-color: var(--border); }
+  .row-link.free.has:hover { border-color: var(--accent); }
+  .big-tile:hover { border-color: var(--border); }
+  .btn:hover { border-color: var(--border); }
+  .btn-ghost:hover { color: var(--muted); }
+  .crumb:hover { text-decoration: none; }
+  .note-done:hover { background: transparent; color: var(--warn); }
+  .theme-toggle:hover { border-color: var(--border); color: var(--muted); }
+  .later-items > .card:hover { opacity: .78; }
+  h1 > #home-link:hover { color: inherit; }
+  nav.tabs button.home-tab:hover { color: var(--accent); }
+}

@@ -520,6 +520,9 @@ function todoCard(todo, { overdue = false } = {}) {
     text: '✓',
     onclick: async () => {
       check.disabled = true;
+      // Fokus abgeben, sonst bleibt die Hervorhebung am Platz hängen und
+      // wirkt nach dem Neuzeichnen wie ein Haken am nächsten Eintrag.
+      check.blur();
       try {
         const result = await api(`/api/todos/${todo.id}`, 'PATCH',
                                  { status: 'done', doneBy: state.me });
@@ -1258,6 +1261,7 @@ function viewStart() {
           text: '✓',
           onclick: async () => {
             erledigen.disabled = true;
+            erledigen.blur();
             try {
               await api(`/api/todos/${note.id}`, 'PATCH',
                         { status: 'done', doneBy: state.me });
