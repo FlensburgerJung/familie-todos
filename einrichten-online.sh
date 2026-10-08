@@ -12,7 +12,7 @@ warn()    { printf "  %s!%s %s\n" "$Y" "$N" "$1"; }
 fehler()  { printf "  %s✗%s %s\n" "$R" "$N" "$1"; }
 frage()   { printf "  %s [j/n] " "$1"; read -r a; [[ "$a" =~ ^[jJyY] ]]; }
 
-ZUGANG="data/zugangsdaten-online.txt"
+ENVDATEI=".env"
 
 printf "\n%sFamilie ToDos - Vorbereitung für den Betrieb im Internet%s\n" "$B" "$N"
 echo   "Kein Docker nötig: Render baut die App als normales Python-Projekt."
@@ -116,23 +116,23 @@ else
 fi
 
 # --- 6. Zusammenfassung ------------------------------------------------
-mkdir -p data
+# Werte in die .env schreiben - dieselbe Datei, die die App beim Start liest.
+if [ -f "$ENVDATEI" ]; then
+  cp "$ENVDATEI" "$ENVDATEI.backup"
+  warn "Bestehende .env gesichert als .env.backup"
+fi
 {
-  echo "Zugangsdaten für den Online-Betrieb"
-  echo "Erstellt am $(date '+%d.%m.%Y %H:%M')"
-  echo
-  echo "Diese Werte bei Render unter Environment eintragen:"
+  echo "# Familie ToDos - lokale Einstellungen"
+  echo "# Erstellt am $(date '+%d.%m.%Y %H:%M'). Wird nicht zu GitHub hochgeladen."
   echo
   echo "APP_PASSWORD=$APP_PASSWORD"
-  [ -n "$DATABASE_URL" ] && echo "DATABASE_URL=$DATABASE_URL"
-  [ -n "$LLM_KEY" ] && echo "$LLM_VAR=$LLM_KEY"
-  echo
-  echo "Diese Datei liegt in data/ und wird nicht mit Git hochgeladen."
-} > "$ZUGANG"
-chmod 600 "$ZUGANG"
+  if [ -n "$DATABASE_URL" ]; then echo "DATABASE_URL=$DATABASE_URL"; else echo "# DATABASE_URL="; fi
+  if [ -n "$LLM_KEY" ]; then echo "$LLM_VAR=$LLM_KEY"; else echo "# ANTHROPIC_API_KEY="; fi
+} > "$ENVDATEI"
+chmod 600 "$ENVDATEI"
 
 printf "\n%sVorbereitet.%s\n\n" "$B" "$N"
-echo "  Die Werte stehen in $ZUGANG (nur für dich lesbar)."
+echo "  Die Werte stehen in .env (nur für dich lesbar, nicht in Git)."
 echo
 echo "  Weiter bei Render:"
 echo "   1. Code zu GitHub hochladen (siehe oben)"

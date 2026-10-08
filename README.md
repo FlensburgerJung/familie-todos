@@ -124,9 +124,23 @@ Auf **Automatisch** wird der Reihe nach probiert: Cloud, dann lokal, dann Regeln
 Fällt etwas aus, rutscht der Einwurf eine Stufe tiefer und landet zur Bestätigung
 in der Inbox — verloren geht nichts.
 
-**Schlüssel** kommen aus der Umgebung (`ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`,
-`OPENAI_API_KEY`) oder — nur zuhause — aus dem Einstellungen-Tab; von dort landen
-sie in `data/secrets.json`, lesbar nur für deinen Benutzer. Die Umgebung hat Vorrang.
+**Schlüssel und Verbindungen** gehören in eine `.env` im Projektordner:
+
+```bash
+cp .env.example .env     # dann mit einem Editor ausfüllen
+```
+
+Darin stehen `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `OPENAI_API_KEY` sowie für
+den Online-Betrieb `APP_PASSWORD` und `DATABASE_URL`. Die Datei wird beim Start
+gelesen und ist von Git ausgeschlossen — sie verlässt deinen Rechner nie.
+
+Vorrang, von oben nach unten:
+
+1. echte Umgebungsvariablen (`export …` im Terminal, bei Render das Dashboard)
+2. die `.env`
+3. `data/secrets.json` — was du im Einstellungen-Tab der App einträgst
+
+Bei Render trägst du die Werte **im Dashboard** ein, nicht in einer Datei.
 
 **Offline mit Ollama:** `ollama pull <modell>`, dann in den Einstellungen eintragen.
 Das vorhandene `gemma4:12b-mlx` braucht rund 4 Sekunden pro Einwurf. Denkende
