@@ -5,6 +5,7 @@ const state = {
   todos: [], lists: [], people: [], settings: {}, keys: {},
   horizons: {}, repeats: {}, efforts: [], listKinds: {},
   engineChain: [], deployment: {},
+  stale: false,   // zeigt gerade den gepufferten Stand
   tab: 'start',
   horizon: 'soon',
   busy: false,
@@ -15,6 +16,7 @@ const state = {
 };
 
 const QUEUE_KEY = 'familie-todos-queue';
+const CACHE_KEY = 'familie-todos-state';
 const SOON_DAYS = 7;
 
 // Am Telefon soll nach dem Absenden die Tastatur zugehen, damit man sieht,
@@ -90,26 +92,32 @@ function toast(message, isError = false) {
    Auf günstigen Tarifen fährt der Dienst nach einer Viertelstunde Ruhe
    herunter; der erste Aufruf danach braucht bis zu einer Minute. Ohne
    Wiederholung sieht die Familie dann eine Fehlermeldung statt ihrer Listen. */
-const WAKE_ATTEMPTS = 6;
-const WAKE_PAUSE_MS = 2500;
+/* Nach Zeit begrenzen, nicht nach Versuchen: ein schlafender Dienst antwortet
+   sofort mit 502, statt in eine Zeitüberschreitung zu laufen. Feste Versuche
+   wären darum in Sekunden aufgebraucht, lange bevor er wach ist. */
+const WAKE_BUDGET_MS = 90000;
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 async function apiWithPatience(path, onWaiting, method, body) {
-  let lastError;
-  for (let attempt = 1; attempt <= WAKE_ATTEMPTS; attempt++) {
+  const until = Date.now() + WAKE_BUDGET_MS;
+  let lastError, attempt = 0;
+
+  while (Date.now() < until) {
+    attempt++;
     try {
       return await api(path, method, body);
     } catch (error) {
       lastError = error;
       // Eine abgelehnte Anmeldung wiederholt sich nicht von selbst.
       if (error.status === 401) throw error;
-      if (attempt < WAKE_ATTEMPTS) {
-        if (onWaiting) onWaiting(attempt);
-        await sleep(WAKE_PAUSE_MS);
-      }
+      const left = Math.max(0, Math.round((until - Date.now()) / 1000));
+      if (left <= 0) break;
+      if (onWaiting) onWaiting(attempt, left);
+      // Kurz steigende Pausen: schnell beim ersten Mal, dann ruhiger.
+      await sleep(Math.min(5000, 1000 * attempt));
     }
   }
   throw lastError;
@@ -221,9 +229,31 @@ async function flushQueue() {
 
 /* ---------- Daten ---------- */
 
+/* Der zuletzt geladene Stand bleibt im Browser liegen. Dadurch sind die
+   Listen sofort da - auch während der Dienst noch aufwacht oder gar kein Netz
+   da ist. Geändert werden kann in dem Zustand nichts; das sagt ein Hinweis. */
+function cacheState(data) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), data }));
+  } catch { /* Speicher voll oder gesperrt - dann eben ohne Puffer */ }
+}
+
+function readCachedState() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && parsed.data && parsed.data.lists ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 async function refresh() {
   const data = await api('/api/state');
   Object.assign(state, data);
+  state.stale = false;
+  cacheState(data);
   render();
 }
 
@@ -1385,6 +1415,15 @@ function renderBadge() {
     ollama: 'lokal', heuristic: 'Regeln',
   };
   const queued = readQueue().length;
+
+  if (state.stale) {
+    badge.textContent = queued ? `${queued} wartet · älterer Stand` : 'älterer Stand';
+    badge.className = 'engine-badge offline';
+    badge.title = 'Der Server antwortet gerade nicht. Angezeigt wird der zuletzt '
+                + 'geladene Stand — Änderungen sind erst wieder möglich, wenn er da ist.';
+    return;
+  }
+
   badge.textContent = queued
     ? `${queued} wartet · ${names[engine] || engine}`
     : names[engine] || engine;
@@ -1398,6 +1437,13 @@ function render() {
   renderBadge();
   const view = document.getElementById('view');
   view.textContent = '';
+  if (state.stale) {
+    view.append(el('div', { class: 'stale-note' }, [
+      el('span', { class: 'spin' }),
+      ' Server wacht auf — das hier ist der zuletzt geladene Stand. '
+      + 'Abhaken und Ändern geht gleich wieder.',
+    ]));
+  }
   view.append((VIEWS[state.tab] || viewStart)());
 }
 
@@ -1561,14 +1607,31 @@ function showWaking(attempt) {
     // Ohne Netz weiter: Eingeworfenes wird lokal gemerkt und nachgereicht.
   }
 
-  try {
-    const data = await apiWithPatience('/api/state', showWaking);
-    Object.assign(state, data);
-    await flushQueue();
+  // Erst der gepufferte Stand - die Familie sieht ihre Listen sofort.
+  const cached = readCachedState();
+  if (cached) {
+    Object.assign(state, cached.data);
+    state.stale = true;
     state.tab = 'start';
+    render();
+  }
+
+  try {
+    const data = await apiWithPatience('/api/state', cached ? null : showWaking);
+    Object.assign(state, data);
+    state.stale = false;
+    cacheState(data);
+    await flushQueue();
+    if (!cached) state.tab = 'start';
     render();
   } catch (error) {
     if (error.status === 401) { showLogin(); return; }
+    if (cached) {
+      // Listen bleiben stehen, nur der Hinweis wechselt.
+      state.stale = true;
+      render();
+      return;
+    }
     const view = document.getElementById('view');
     if (view) {
       view.textContent = '';
