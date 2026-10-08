@@ -223,11 +223,69 @@ async function apiWithPatience(path, onWaiting, method, body) {
   throw lastError;
 }
 
+/* Sichtbar machen, dass gewartet wird.
+
+   Schlaeft der Dienst, dauert die erste Anfrage bis zu einer Minute. Ohne
+   Rueckmeldung tippt man in der Zeit immer weiter, weil man denkt, es sei
+   nichts angekommen. Ein Balken nach gut einer Sekunde sagt, was los ist -
+   und bittet ausdruecklich, nicht mehrfach zu tippen. */
+let offeneAnfragen = 0;
+let balkenTimer = null;
+let balkenSeit = 0;
+let balkenText = null;
+
+function zeigeWarteBalken() {
+  let balken = document.getElementById('waitbar');
+  if (!balken) {
+    balkenText = el('span', {});
+    balken = el('div', { id: 'waitbar', role: 'status', 'aria-live': 'polite' }, [
+      el('span', { class: 'spin' }), balkenText,
+    ]);
+    document.body.append(balken);
+  }
+  balkenSeit = Date.now();
+  const aktualisiere = () => {
+    if (!balkenText) return;
+    const sekunden = Math.round((Date.now() - balkenSeit) / 1000);
+    balkenText.textContent = sekunden < 6
+      ? ' Moment — der Server antwortet gleich …'
+      : ` Der Server war eingeschlafen und fährt hoch (${sekunden} s). `
+        + 'Bitte nicht mehrfach tippen, es geht nichts verloren.';
+  };
+  aktualisiere();
+  balken.classList.add('show');
+  balken._ticker = setInterval(aktualisiere, 1000);
+}
+
+function versteckeWarteBalken() {
+  const balken = document.getElementById('waitbar');
+  if (!balken) return;
+  clearInterval(balken._ticker);
+  balken.classList.remove('show');
+}
+
+function anfrageBeginnt() {
+  offeneAnfragen++;
+  if (offeneAnfragen === 1) {
+    // Kurze Anfragen sollen keinen Balken aufblitzen lassen.
+    balkenTimer = setTimeout(zeigeWarteBalken, 1200);
+  }
+}
+
+function anfrageEndet() {
+  offeneAnfragen = Math.max(0, offeneAnfragen - 1);
+  if (offeneAnfragen === 0) {
+    clearTimeout(balkenTimer);
+    versteckeWarteBalken();
+  }
+}
+
 async function api(path, method = 'GET', body) {
   // Ohne Zeitgrenze hängt der Aufruf minutenlang, statt es neu zu versuchen.
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   let response;
+  anfrageBeginnt();
   try {
     response = await fetch(path, {
       method,
@@ -237,6 +295,7 @@ async function api(path, method = 'GET', body) {
     });
   } finally {
     clearTimeout(timer);
+    anfrageEndet();
   }
   const data = await response.json().catch(() => ({}));
   if (response.status === 401 && path !== '/api/login') {

@@ -341,6 +341,19 @@ Im Online-Betrieb hängt ein Schlüssel an der Adresse (`?token=…`), weil
 Kalender-Programme keine Anmeldung mitschicken können. Wer die Adresse hat, sieht
 die Termine — also nur innerhalb der Familie weitergeben.
 
+## Wenn der Server erst aufwachen muss
+
+Auf dem kostenlosen Tarif schläft der Dienst nach 15 Minuten ein. Die erste
+Aktion danach dauert dann bis zu einer Minute. Damit niemand in der Zeit
+ungeduldig weitertippt, erscheint nach gut einer Sekunde oben ein Balken:
+
+> ⏳ Der Server war eingeschlafen und fährt hoch (12 s). Bitte nicht mehrfach
+> tippen, es geht nichts verloren.
+
+Die Sekundenzahl läuft mit, damit man sieht, dass etwas passiert. Beim Öffnen
+der App erscheinen die Listen schon vorher aus dem Zwischenspeicher — dann mit
+einem gelben Hinweis, dass es ein älterer Stand ist.
+
 ## Offline
 
 Die Web-App bleibt geöffnet nutzbar, auch wenn der Server weg ist. Was du in der
