@@ -278,6 +278,17 @@ keine Dauer, erscheinen nicht unter „überfällig", nicht im Tab „Listen", n
 bei „frei zu vergeben" und nicht im Kalender. Ein Buchtipp oder „mal an die
 Ostsee fahren" soll einen schließlich nicht als überfällig anmahnen.
 
+### Empfehlungen für jemanden
+
+In einer Sammlung hat die Person eine andere Bedeutung als bei einer Aufgabe:
+Dort steht nicht „wer macht das", sondern **„für wen ist das"** — ein Buch für
+Thilo, ein Ausflug für Simone. Das Feld heißt dort entsprechend *Für wen*, und
+leer bedeutet *für alle*.
+
+Steht der Name im Text, erkennt die App ihn von selbst: „Die Känguru-Chroniken
+für Thilo" landet als Empfehlung bei ihm — auch über den Knopf *Merken*, der
+ohne Sprachmodell auskommt.
+
 Wünsche und Medien tauchen nie unter „überfällig" auf, stehen nicht im Kalender
 und bekommen keine Dauer — ein Buchtipp hat keine Frist. Sie haben eigene
 Kacheln auf dem Start. Die Art lässt sich unter *Mehr → Listen* ändern.

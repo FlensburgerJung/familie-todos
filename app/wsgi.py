@@ -111,8 +111,19 @@ def _capture(payload: dict) -> dict:
     # entscheiden: Titel ist der Text, Termin und Dauer entfallen ohnehin.
     target_now = db.get_list(chosen_list) if chosen_list else None
     if target_now and not db.area_is_dated(target_now.get("kind", "tasks")):
+        # Steht die Liste fest, erübrigt sich der Modellaufruf. Ein im Text
+        # genannter Name soll trotzdem ankommen - "das Buch für Thilo" ist eine
+        # Empfehlung fuer ihn. Reine Namenssuche, kostet nichts.
+        if not chosen_person:
+            kleingeschrieben = text.lower()
+            for person in people:
+                if person["name"].lower() in kleingeschrieben:
+                    chosen_person = person["id"]
+                    break
+
         todo = db.create_todo({
             "title": text[:120], "rawInput": text, "listId": chosen_list,
+            "assigneeId": chosen_person or None,
             "status": "open", "confidence": 1.0, "engine": "manuell",
         })
         return {"todo": todo, "engine": "manuell", "problems": [], "autoFiled": True}
@@ -146,7 +157,9 @@ def _capture(payload: dict) -> dict:
         result["due_date"] = None
         result["minutes"] = 0
         result["repeat"] = ""
-        result["assignee"] = ""
+        # Die Person bleibt erhalten: in einer Sammlung heisst sie nicht
+        # "wer macht das", sondern "fuer wen ist das" - ein Buchtipp fuer
+        # Thilo, ein Ausflug fuer Simone. Leer heisst: fuer alle.
     elif target and target.get("kind") == "appointments":
         # Auf der Terminliste heisst „kein Datum" = noch zu vereinbaren. Ein
         # aus dem Zeithorizont errechnetes Datum wuerde das verwischen.

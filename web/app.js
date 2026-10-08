@@ -481,7 +481,11 @@ function metaChips(todo) {
   if (list) chips.push(el('span', { class: 'chip', text: `${list.emoji} ${list.name}` }));
 
   const person = personById(todo.assigneeId);
-  if (person) chips.push(el('span', { class: 'chip', text: `${person.emoji} ${person.name}` }));
+  if (person) {
+    // In einer Sammlung ist die Person der Empfaenger, nicht der Zustaendige.
+    const fuer = isTask(todo) ? '' : 'für ';
+    chips.push(el('span', { class: 'chip', text: `${person.emoji} ${fuer}${person.name}` }));
+  }
 
   if (todo.dueDate) {
     const days = daysUntil(todo.dueDate);
@@ -616,7 +620,7 @@ function reviewCard(todo) {
   });
 
   const personSelect = el('select', {}, [
-    el('option', { value: '', text: '— niemand —' }),
+    el('option', { value: '', text: dated ? '— niemand —' : '🏠 für alle' }),
     ...state.people.map(person => el('option', {
       value: person.id, text: `${person.emoji} ${person.name}`,
       selected: person.id === todo.assigneeId,
@@ -645,9 +649,8 @@ function reviewCard(todo) {
   const confirmBtn = el('button', { class: 'btn btn-primary', text: 'Passt so' });
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled = true;
-    const payload = { title: titleInput.value };
+    const payload = { title: titleInput.value, assigneeId: personSelect.value };
     if (dated) {
-      payload.assigneeId = personSelect.value;
       payload.dueDate = dueInput.value;
       payload.priority = prioSelect.value;
       payload.repeat = repeatSelect.value;
@@ -689,7 +692,8 @@ function reviewCard(todo) {
     el('div', { class: 'fields' }, [
       el('label', { class: 'field wide' }, [el('span', { text: 'Liste' }), listSelect]),
       newListWrap,
-      dated ? el('label', { class: 'field' }, [el('span', { text: 'Wer' }), personSelect]) : null,
+      el('label', { class: 'field' }, [
+        el('span', { text: dated ? 'Wer' : 'Für wen' }), personSelect]),
       dated ? el('label', { class: 'field' }, [el('span', { text: 'Fällig' }), dueInput]) : null,
       dated ? el('label', { class: 'field' }, [el('span', { text: 'Priorität' }), prioSelect]) : null,
       dated ? el('label', { class: 'field' }, [el('span', { text: 'Wiederholung' }), repeatSelect]) : null,
@@ -899,9 +903,9 @@ function quickAdd(listId) {
     placeholder: dated ? 'Direkt hinzufügen …' : 'Auf die Liste setzen …',
   });
 
-  const personSelect = dated && state.people.length
+  const personSelect = state.people.length
     ? el('select', { class: 'quick-person' }, [
-        el('option', { value: '', text: '🙋 wer?' }),
+        el('option', { value: '', text: dated ? '🙋 wer?' : '🏠 für alle' }),
         ...state.people.map(person => el('option', {
           value: person.id, text: `${person.emoji} ${person.name}`,
         })),

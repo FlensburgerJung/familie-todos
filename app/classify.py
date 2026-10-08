@@ -113,9 +113,11 @@ Datum um. Sonst leer lassen - dann setzt die App den Zeithorizont ein.
 in eine Aufgabenliste. Lebensmittel und Alltägliches auf den täglichen Bedarf, \
 Werkzeug und Material in den Baumarkt, Geräte und Kabel zu Elektro, Größeres ohne \
 Eile zu "Langfristig". Nennt der Text eine Person, deren persönlicher Zettel.
-- Merklisten (Wünsche, Bücher/Filme/Podcasts) sind keine Aufgaben: dort `due_date`, \
-`minutes` und `repeat` leer bzw. 0 lassen und niemanden zuweisen. Ein Buchtipp hat \
-keine Frist.
+- Sammlungen (Wünsche, Bücher/Filme/Podcasts, Unternehmungen) sind keine Aufgaben: \
+dort `due_date`, `minutes` und `repeat` leer bzw. 0 lassen. Ein Buchtipp hat keine Frist.
+- In einer Sammlung bedeutet `assignee` nicht „wer erledigt das", sondern „für wen ist \
+das gedacht": ein Buch für Thilo, ein Ausflug für Simone. Nennt der Text niemanden \
+oder ist es für alle gedacht, leer lassen.
 - `minutes` schätzen, wie lange die Aufgabe tatsächlich dauert: Müll runterbringen \
 5, Spülmaschine ausräumen 10, einkaufen gehen 45, Wohnung putzen 120. Nicht die \
 Wartezeit mitrechnen, nur die eigene Arbeit. 0, wenn das nicht einzuschätzen ist.
