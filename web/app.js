@@ -21,6 +21,50 @@ const QUEUE_KEY = 'familie-todos-queue';
 const CACHE_KEY = 'familie-todos-state';
 const SHARED_KEY = 'familie-todos-shared';
 const ME_KEY = 'familie-todos-me';
+const THEME_KEY = 'familie-todos-theme';
+
+/* Hell, dunkel oder wie das Geraet es haelt. Die Wahl wird sofort gesetzt -
+   noch bevor die Oberflaeche steht, damit nichts kurz aufblitzt. */
+const THEMES = [
+  { id: 'auto', icon: '🌓', label: 'Farbschema: wie das Gerät' },
+  { id: 'light', icon: '☀️', label: 'Farbschema: hell' },
+  { id: 'dark', icon: '🌙', label: 'Farbschema: dunkel' },
+];
+
+function readTheme() {
+  try { return localStorage.getItem(THEME_KEY) || 'auto'; } catch { return 'auto'; }
+}
+
+function applyTheme(id) {
+  const root = document.documentElement;
+  if (id === 'auto') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', id);
+  try {
+    if (id === 'auto') localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, id);
+  } catch { /* egal */ }
+  const farbe = getComputedStyle(root).getPropertyValue('--bg').trim();
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta && farbe) meta.setAttribute('content', farbe);
+}
+
+applyTheme(readTheme());
+
+function setupTheme() {
+  const knopf = document.getElementById('theme-toggle');
+  if (!knopf) return;
+  const zeige = () => {
+    const aktuell = THEMES.find(t => t.id === readTheme()) || THEMES[0];
+    knopf.textContent = aktuell.icon;
+    knopf.title = aktuell.label + ' — tippen zum Wechseln';
+  };
+  knopf.addEventListener('click', () => {
+    const index = THEMES.findIndex(t => t.id === readTheme());
+    applyTheme(THEMES[(index + 1) % THEMES.length].id);
+    zeige();
+  });
+  zeige();
+}
 
 /* Wer sitzt gerade vor dem Geraet? Wird pro Geraet gemerkt - Simones Handy
    ist Simone. Dadurch laesst sich festhalten, wer etwas erledigt hat, ohne
@@ -358,16 +402,26 @@ const repeatingTodos = () => openTodos().filter(t => t.repeat);
 const kindTodos = kind => openTodos().filter(t => listKind(t.listId) === kind);
 const personTodos = id => openTodos().filter(t => isTask(t) && t.assigneeId === id);
 
-/* Was heute dran ist, von dem trennen, was erst kommt.
+/* Was jetzt zählt, von dem trennen, was wirklich noch Zeit hat.
 
-   Beim Abhaken einer taeglichen Aufgabe entsteht sofort der Eintrag fuer
-   morgen - stuende der gleich wieder oben, haette man das Gefuehl, nichts
-   geschafft zu haben. Kuenftiges wandert deshalb hinter eine Klappe. */
+   Zwei Fälle sind zu unterscheiden:
+
+   Die meisten Todos haben kein echtes Fristdatum - „bald" heißt in drei Tagen,
+   weil jemand beim Einwerfen auf „Bald" getippt hat. Die gehören in die Liste,
+   sonst stünde dort fast nichts.
+
+   Ein beim Abhaken erzeugter Folgetermin ist etwas anderes: Wer den Müll
+   gerade rausgebracht hat, will ihn nicht sofort wieder dort stehen sehen.
+   Der bleibt weg, bis er dran ist - erkennbar daran, dass er von einem
+   abgehakten Vorgänger stammt. */
 function splitByDue(todos) {
   const faellig = [], spaeter = [];
   for (const todo of todos) {
     const tage = daysUntil(todo.dueDate);
-    (tage !== null && tage > 0 ? spaeter : faellig).push(todo);
+    if (tage === null || tage <= 0) faellig.push(todo);
+    else if (todo.createdFrom) spaeter.push(todo);
+    else if (tage <= SOON_DAYS) faellig.push(todo);
+    else spaeter.push(todo);
   }
   return { faellig, spaeter };
 }
@@ -989,7 +1043,7 @@ function viewFocus() {
     body = el('div', {}, [
       faellig.length
         ? el('div', {}, faellig.map(zeichne))
-        : el('p', { class: 'hint', text: 'Heute nichts offen. 🎉' }),
+        : el('p', { class: 'hint', text: 'Nichts, was in den nächsten Tagen ansteht. 🎉' }),
       laterBlock(spaeter, zeichne),
     ]);
   }
@@ -1750,6 +1804,8 @@ function renderTabs() {
     const count = tab.counter ? tab.counter().length : 0;
     nav.append(el('button', {
       role: 'tab',
+      // Der Heimweg bleibt immer erkennbar, nicht nur wenn er gerade offen ist.
+      class: tab.id === 'start' ? 'home-tab' : '',
       'aria-selected': String(state.tab === tab.id),
       'aria-label': tab.text + (count ? ` (${count})` : ''),
       onclick: () => {
@@ -2091,6 +2147,7 @@ function showWaking(attempt) {
 
 (async function start() {
   state.me = readMe();
+  setupTheme();
   setupCapture();
   setupFab();
   if ('serviceWorker' in navigator) {

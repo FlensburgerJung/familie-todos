@@ -17,8 +17,12 @@
   --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 4px 16px rgba(0, 0, 0, .04);
 }
 
+/* Dunkle Farben an zwei Stellen definiert: einmal für alle, die ihr System
+   dunkel gestellt haben (sofern sie nicht ausdrücklich hell gewählt haben),
+   einmal für die ausdrückliche Wahl. So gewinnt der Umschalter in beide
+   Richtungen - auch wenn er dem System widerspricht. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #17171a;
     --surface: #212126;
     --surface-2: #2a2a30;
@@ -33,6 +37,22 @@
     --danger-soft: #3a2320;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #17171a;
+  --surface: #212126;
+  --surface-2: #2a2a30;
+  --border: #35353d;
+  --text: #eceaea;
+  --muted: #9b9791;
+  --accent: #7fba99;
+  --accent-soft: #23342c;
+  --warn: #e0b072;
+  --warn-soft: #362c1d;
+  --danger: #e59182;
+  --danger-soft: #3a2320;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
 }
 
 * { box-sizing: border-box; }
@@ -142,7 +162,10 @@ button { font: inherit; cursor: pointer; }
   color: #fff;
   font-weight: 600;
 }
-@media (prefers-color-scheme: dark) { .btn-primary { color: #15251d; } }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-primary { color: #15251d; }
+}
+:root[data-theme="dark"] .btn-primary { color: #15251d; }
 .btn-primary:disabled { opacity: .5; cursor: default; }
 .btn-ghost { background: none; border-color: transparent; color: var(--muted); padding: 6px 8px; }
 .btn-ghost:hover { color: var(--danger); }
@@ -206,15 +229,22 @@ nav.tabs button[aria-selected="true"] {
 .card.review { border-left: 3px solid var(--warn); }
 .card.overdue { border-left: 3px solid var(--danger); }
 
-.todo { display: flex; gap: 10px; align-items: flex-start; }
+.todo {
+  display: flex;
+  gap: 10px;
+  /* Mittig statt oben: das Kästchen soll in der Karte zentriert sitzen,
+     nicht an der ersten Textzeile kleben. */
+  align-items: center;
+}
 
 .check {
   flex: none;
   width: 44px;
   height: 44px;
-  /* Die Trefferfläche ragt oben UND unten über die Textzeile hinaus, damit
-     das Kästchen mittig auf der ersten Zeile sitzt statt darüber zu schweben. */
-  margin: -11px 0 -11px -10px;
+  /* Nur links einziehen. Oben und unten entsteht die Symmetrie durch die
+     zentrierte Ausrichtung der Zeile - jeder vertikale Rand hier würde sie
+     wieder zerstören. */
+  margin: 0 0 0 -10px;
   border: none;
   background: none;
   padding: 0;
@@ -565,7 +595,8 @@ a.btn { text-decoration: none; display: inline-block; }
   .todo > .btn-ghost {
     min-width: 44px;
     min-height: 44px;
-    margin: -11px -8px -11px 0;
+    margin: 0 -8px 0 0;
+    align-self: center;
     font-size: 19px;
   }
 
@@ -1073,7 +1104,6 @@ a.btn { text-decoration: none; display: inline-block; }
   color: var(--accent);
   font-size: 14px;
   font-weight: 700;
-  margin-top: 1px;
 }
 .todo-title.struck { text-decoration: line-through; color: var(--muted); }
 .done-card .actions { margin-top: 10px; }
@@ -1167,3 +1197,53 @@ a.btn { text-decoration: none; display: inline-block; }
 }
 .later-toggle:hover { color: var(--accent); }
 .later-items { margin-top: 4px; opacity: .8; }
+
+/* Umschalter fürs Farbschema */
+.theme-toggle {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  border-radius: 99px;
+  min-width: 34px;
+  min-height: 26px;
+  padding: 3px 9px;
+  font-size: 13px;
+  line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+@media (max-width: 640px) {
+  .theme-toggle { min-height: 30px; min-width: 38px; }
+}
+
+/* Der Weg nach Hause - dauerhaft farbig, damit das Ziel immer klar ist */
+nav.tabs button.home-tab { color: var(--accent); }
+nav.tabs button.home-tab .tab-icon,
+nav.tabs button.home-tab .tab-text {
+  background: var(--accent-soft);
+  border-radius: 9px;
+}
+nav.tabs button.home-tab .tab-text { padding: 3px 11px; font-weight: 600; }
+nav.tabs button.home-tab[aria-selected="true"] .tab-text {
+  background: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) nav.tabs button.home-tab[aria-selected="true"] .tab-text {
+    color: #15251d;
+  }
+}
+:root[data-theme="dark"] nav.tabs button.home-tab[aria-selected="true"] .tab-text { color: #15251d; }
+
+@media (max-width: 640px) {
+  nav.tabs button.home-tab .tab-icon {
+    padding: 3px 10px;
+    background: var(--accent-soft);
+  }
+  nav.tabs button.home-tab[aria-selected="true"] .tab-icon {
+    background: var(--accent);
+  }
+  nav.tabs button.home-tab .tab-label { color: var(--accent); font-weight: 600; }
+}
