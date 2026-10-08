@@ -126,12 +126,24 @@ def close() -> None:
 # Neon fährt die Datenbank nach einigen Minuten Ruhe herunter; die erste
 # Anfrage danach läuft in eine tote Verbindung. Einmal neu verbinden und
 # wiederholen, statt den Benutzer einen Fehler sehen zu lassen.
-_RETRYABLE = ("closed", "connection", "broken pipe", "terminat", "eof", "reset",
-              "ssl", "timeout", "not connected")
+#
+# Auf die Fehlerklasse zu prüfen ist verlässlicher als auf Textbausteine:
+# pg8000 meldet eine abgerissene Verbindung als InterfaceError("network
+# error") - ein Wortlaut, den keine noch so lange Stichwortliste zuverlässig
+# trifft. Die Liste bleibt als Ergänzung für Treiber, die anders melden.
+_RETRYABLE_TYPES = ("InterfaceError", "OperationalError", "SSLEOFError",
+                    "SSLError", "SSLZeroReturnError", "ConnectionResetError",
+                    "BrokenPipeError", "TimeoutError")
+
+_RETRYABLE_WORDS = ("closed", "connection", "broken pipe", "terminat", "eof",
+                    "reset", "ssl", "timeout", "not connected", "network")
 
 
 def _is_connection_error(exc: Exception) -> bool:
-    return any(word in str(exc).lower() for word in _RETRYABLE)
+    for klass in type(exc).__mro__:
+        if klass.__name__ in _RETRYABLE_TYPES:
+            return True
+    return any(word in str(exc).lower() for word in _RETRYABLE_WORDS)
 
 
 def _rows_from(cursor) -> list[dict]:
@@ -157,13 +169,15 @@ def _run(sql: str, params, want_rows: bool, commit: bool):
                 conn.commit()
             return rows, count
         except Exception as exc:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            if attempt == 1 and _is_connection_error(exc):
-                close()
-                continue
+            if _is_connection_error(exc):
+                close()          # tote Verbindung nie weiterverwenden
+                if attempt == 1:
+                    continue
+            else:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             raise
 
 
@@ -194,13 +208,15 @@ def execute_many(statements: list[tuple[str, tuple]]) -> None:
             conn.commit()
             return
         except Exception as exc:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-            if attempt == 1 and _is_connection_error(exc):
+            if _is_connection_error(exc):
                 close()
-                continue
+                if attempt == 1:
+                    continue
+            else:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             raise
 
 
