@@ -1,0 +1,12 @@
+{
+  "name": "Familie ToDos",
+  "short_name": "ToDos",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f5f2",
+  "theme_color": "#3a6b52",
+  "lang": "de",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

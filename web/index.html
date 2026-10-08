@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Familie ToDos</title>
+  <meta name="theme-color" content="#3a6b52">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ToDos">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Familie ToDos</h1>
+      <span class="engine-badge" id="engine-badge">…</span>
+    </header>
+
+    <form class="capture" id="capture-form">
+      <textarea id="capture-text" rows="2" enterkeyhint="send"
+        placeholder="Einfach reinwerfen: „Heizung tropft, Hausverwaltung anschreiben“"></textarea>
+      <div class="horizons" id="horizons" role="group" aria-label="Wann muss das erledigt sein?"></div>
+      <div class="capture-row">
+        <span class="capture-hint" id="capture-hint">Wird automatisch einsortiert.</span>
+        <button type="submit" class="btn btn-primary" id="capture-submit">Rein damit</button>
+      </div>
+    </form>
+
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <main id="view"></main>
+  </div>
+
+  <button id="fab" class="fab" type="button" aria-label="Neues Todo einwerfen">＋</button>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js"></script>
+</body>
+</html>

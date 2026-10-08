@@ -1,0 +1,19 @@
+# Render-Blueprint: legt den Dienst mit einem Klick an.
+# Die Datenbank kommt von Neon (kostenlos, läuft nicht ab) - deren
+# Verbindungs-URL wird unten als DATABASE_URL eingetragen.
+services:
+  - type: web
+    name: familie-todos
+    runtime: python
+    plan: free              # für Dauerbetrieb ohne Einschlafen: starter
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_PASSWORD      # Familienpasswort - ohne startet die App nicht
+        sync: false
+      - key: DATABASE_URL      # Verbindungs-URL von Neon
+        sync: false
+      - key: ANTHROPIC_API_KEY # optional, je nach gewähltem Anbieter
+        sync: false

@@ -1,0 +1,970 @@
+/* Familie ToDos - mobil zuerst, keine externen Abhängigkeiten. */
+
+:root {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --surface-2: #f0efeb;
+  --border: #e0ded7;
+  --text: #24221e;
+  --muted: #74706a;
+  --accent: #3a6b52;
+  --accent-soft: #e6efe9;
+  --warn: #9a6216;
+  --warn-soft: #fbf0dd;
+  --danger: #a33a2c;
+  --danger-soft: #fae7e3;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .05), 0 4px 16px rgba(0, 0, 0, .04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171a;
+    --surface: #212126;
+    --surface-2: #2a2a30;
+    --border: #35353d;
+    --text: #eceaea;
+    --muted: #9b9791;
+    --accent: #7fba99;
+    --accent-soft: #23342c;
+    --warn: #e0b072;
+    --warn-soft: #362c1d;
+    --danger: #e59182;
+    --danger-soft: #3a2320;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Muss vor allen display-Regeln stehen und !important tragen: sonst
+   überschreibt etwa `label.field { display: block }` das hidden-Attribut,
+   und ausgeblendete Felder bleiben sichtbar. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.wrap {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+/* --- Kopf + Eingabe --- */
+
+header {
+  padding: calc(16px + env(safe-area-inset-top, 0px)) 0 8px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+
+.engine-badge {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border-radius: 99px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.engine-badge.offline { color: var(--warn); background: var(--warn-soft); }
+
+.capture {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.capture textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  resize: none;
+  min-height: 52px;
+  outline: none;
+  padding: 4px 2px;
+}
+.capture textarea::placeholder { color: var(--muted); }
+
+.horizons { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 10px; }
+
+.horizons button {
+  flex: 1 1 0;
+  min-width: 72px;
+  padding: 7px 4px;
+  font: inherit;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--muted);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.horizons button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.capture-row { display: flex; gap: 8px; align-items: center; }
+.capture-hint { flex: 1; font-size: 12px; color: var(--muted); }
+
+/* --- Knöpfe --- */
+
+button { font: inherit; cursor: pointer; }
+
+.btn {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+}
+.btn:hover { border-color: var(--muted); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+@media (prefers-color-scheme: dark) { .btn-primary { color: #15251d; } }
+.btn-primary:disabled { opacity: .5; cursor: default; }
+.btn-ghost { background: none; border-color: transparent; color: var(--muted); padding: 6px 8px; }
+.btn-ghost:hover { color: var(--danger); }
+.btn-sm { padding: 5px 10px; font-size: 14px; }
+
+/* --- Tabs --- */
+
+nav.tabs {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  gap: 2px;
+  background: var(--bg);
+  padding: 6px 0 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+nav.tabs::-webkit-scrollbar { display: none; }
+
+nav.tabs button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 7px 12px;
+  border-radius: 8px;
+  white-space: nowrap;
+  font-size: 15px;
+}
+nav.tabs button[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+.count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.count.alert { background: var(--danger-soft); color: var(--danger); }
+.count.warn { background: var(--warn-soft); color: var(--warn); }
+
+/* --- Karten --- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow);
+}
+.card.review { border-left: 3px solid var(--warn); }
+.card.overdue { border-left: 3px solid var(--danger); }
+
+.todo { display: flex; gap: 10px; align-items: flex-start; }
+
+.check {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -10px 0 0 -10px;   /* Trefferfläche vergrößern, Optik bleibt gleich */
+  border: none;
+  background: none;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+.check::before {
+  content: '';
+  width: 23px;
+  height: 23px;
+  border: 1.5px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  grid-area: 1 / 1;
+}
+.check::after {
+  content: '✓';
+  grid-area: 1 / 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: transparent;
+}
+.check:hover::before, .check:active::before { border-color: var(--accent); }
+.check:hover::after, .check:active::after { color: var(--accent); }
+
+.todo-body { flex: 1; min-width: 0; }
+.todo-title { font-weight: 500; overflow-wrap: anywhere; }
+.todo-note { font-size: 14px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.chip {
+  background: var(--surface-2);
+  border-radius: 99px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.chip.due-over { background: var(--danger-soft); color: var(--danger); font-weight: 600; }
+.chip.due-soon { background: var(--warn-soft); color: var(--warn); font-weight: 600; }
+.chip.prio-high { background: var(--danger-soft); color: var(--danger); }
+.chip.repeat { background: var(--accent-soft); color: var(--accent); }
+
+/* --- Bestätigungskarte --- */
+
+.question {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 14px;
+  margin: 8px 0;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+label.field { display: block; font-size: 12px; color: var(--muted); }
+label.field > span { display: block; margin-bottom: 3px; }
+
+input, select, textarea {
+  width: 100%;
+  font: inherit;
+  /* Mindestens 16px: bei kleinerer Schrift zoomt iOS Safari beim Antippen
+     automatisch in die Seite hinein und man muss zurückwischen. */
+  font-size: 16px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.actions .spacer { flex: 1; }
+
+/* --- Listen-Ansicht --- */
+
+.list-group { margin-bottom: 18px; }
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.list-head .count { font-weight: 600; }
+.list-head .desc { font-weight: 400; font-size: 13px; color: var(--muted); }
+
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 20px;
+  font-size: 15px;
+}
+.empty strong { display: block; font-size: 17px; color: var(--text); margin-bottom: 6px; }
+
+/* --- Einstellungen --- */
+
+.section { margin-bottom: 26px; }
+.section h2 { font-size: 16px; margin: 0 0 10px; }
+.section p.hint { font-size: 13px; color: var(--muted); margin: -4px 0 10px; }
+
+.row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.row .grow { flex: 1; }
+
+code.url {
+  display: block;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* --- Toast --- */
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  /* Ohne opacity/visibility bliebe die leere Pille als dunkler Fleck stehen:
+     translate(120%) verschiebt nur um die eigene Höhe, und die ist im
+     leeren Zustand fast null. */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translate(-50%, 120%);
+  background: var(--text);
+  color: var(--bg);
+  padding: 11px 18px;
+  border-radius: 99px;
+  font-size: 14px;
+  max-width: calc(100vw - 32px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .25);
+  transition: transform .25s ease, opacity .2s ease, visibility .2s;
+  z-index: 20;
+  text-align: center;
+}
+#toast.show {
+  transform: translate(-50%, 0);
+  opacity: 1;
+  visibility: visible;
+}
+#toast.error { background: var(--danger); color: #fff; }
+
+.spin {
+  display: inline-block;
+  width: 13px; height: 13px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  vertical-align: -2px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --- Anmeldung --- */
+
+.login {
+  max-width: 340px;
+  margin: 18vh auto 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 24px 20px;
+  text-align: center;
+}
+.login h1 { font-size: 19px; margin: 0 0 6px; }
+.login p { font-size: 14px; color: var(--muted); margin: 0 0 16px; }
+.login input { text-align: center; margin-bottom: 10px; }
+.login .btn { width: 100%; }
+.login-error {
+  color: var(--danger);
+  font-size: 14px;
+  min-height: 20px;
+  margin-bottom: 8px;
+}
+
+a.btn { text-decoration: none; display: inline-block; }
+
+/* ======================================================================
+   Handy-Layout (bis 640px)
+
+   Am Telefon hält man das Gerät unten fest, also wandert die Navigation
+   an den unteren Rand statt an den oberen. Alles Antippbare bekommt
+   mindestens 44px Kantenlänge, damit man es mit dem Daumen trifft.
+   ====================================================================== */
+
+/* Am Rechner steht der ausgeschriebene Name in der Leiste, am Telefon
+   ein Symbol mit Kurzform. Umgeschaltet wird hier, nicht im Skript. */
+.tab-icon, .tab-label { display: none; }
+.tab-text { display: inline; }
+.fab { display: none; }
+
+@media (max-width: 640px) {
+
+  body { font-size: 16px; }
+
+  .wrap {
+    padding-left: 14px;
+    padding-right: 14px;
+    /* Platz für die fixe Leiste unten, plus Home-Indicator beim iPhone. */
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+
+  header { padding-top: calc(12px + env(safe-area-inset-top, 0px)); }
+  h1 { font-size: 18px; }
+
+  /* --- Eingabe: zusammengeklappt eine Zeile, beim Antippen voll --- */
+
+  .capture { padding: 10px 12px; }
+  /* Feste Höhe, weil das rows="2" im HTML sonst zwei Zeilen reserviert. */
+  .capture textarea { min-height: 0; height: 26px; font-size: 16px; }
+  .capture .horizons, .capture .capture-row { display: none; }
+
+  .capture.open { padding: 12px 12px 10px; }
+  .capture.open textarea { height: auto; min-height: 62px; }
+  .capture.open .horizons { display: flex; }
+  .capture.open .capture-row { display: flex; }
+
+  .horizons { gap: 5px; }
+  .horizons button {
+    min-width: 0;            /* vier Knöpfe nebeneinander, auch bei 320px */
+    min-height: 44px;
+    padding: 6px 2px;
+    font-size: 13px;
+  }
+
+  .capture-row { gap: 10px; }
+  .capture-hint { font-size: 12px; line-height: 1.3; }
+  #capture-submit { min-height: 44px; padding: 10px 18px; }
+
+  /* --- Navigation unten --- */
+
+  nav.tabs {
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 10;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 0;
+    padding: 4px 2px calc(4px + env(safe-area-inset-bottom, 0px));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    overflow: visible;
+    /* Auf dem iPhone scheint der Inhalt durch, wenn man darunter scrollt. */
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
+  }
+
+  nav.tabs button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 50px;
+    padding: 4px 2px;
+    border-radius: 10px;
+    font-size: 15px;
+    position: relative;
+    -webkit-tap-highlight-color: transparent;
+  }
+  nav.tabs button[aria-selected="true"] {
+    background: none;
+    box-shadow: none;
+    color: var(--accent);
+  }
+
+  .tab-icon { display: block; font-size: 19px; line-height: 1; }
+  .tab-label { display: block; font-size: 10.5px; letter-spacing: -.01em; }
+  .tab-text { display: none; }
+
+  /* Der Zähler sitzt als Punkt am Symbol, nicht mehr hinter dem Text. */
+  nav.tabs .count {
+    position: absolute;
+    top: 1px;
+    left: 50%;
+    margin-left: 4px;
+    min-width: 17px;
+    padding: 1px 4px;
+    font-size: 10px;
+    line-height: 15px;
+    border-radius: 99px;
+    background: var(--muted);
+    color: var(--surface);
+  }
+  nav.tabs .count.alert { background: var(--danger); color: #fff; }
+  nav.tabs .count.warn { background: var(--warn); color: #fff; }
+
+  /* --- Knopf zum Einwerfen, immer erreichbar --- */
+
+  .fab {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    right: 16px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    z-index: 11;
+    width: 54px;
+    height: 54px;
+    border: none;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 27px;
+    line-height: 1;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, .25);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .fab:active { transform: scale(.94); }
+  .fab.hidden { display: none; }
+
+  /* --- Karten --- */
+
+  .card { padding: 13px 14px; margin-bottom: 9px; border-radius: 13px; }
+  .todo { gap: 8px; }
+  .todo-title { font-size: 16px; line-height: 1.35; }
+  .todo-note { font-size: 14px; }
+  .meta { gap: 5px; margin-top: 7px; }
+  .chip { font-size: 12.5px; padding: 3px 9px; }
+
+  /* Bearbeiten-Knopf auf Daumengröße */
+  .todo > .btn-ghost {
+    min-width: 44px;
+    min-height: 44px;
+    margin: -10px -8px 0 0;
+    font-size: 19px;
+  }
+
+  .list-head { font-size: 16px; margin-bottom: 7px; }
+  .list-group { margin-bottom: 20px; }
+
+  /* --- Formulare --- */
+
+  /* Zwei Spalten, solange jede mindestens 150px breit bleibt - darunter
+     stapelt der Browser von selbst. Liste und neue Liste immer voll breit,
+     weil dort lange Namen stehen. */
+  .fields { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .fields > .field.wide { grid-column: 1 / -1; }
+  /* Knöpfe in eine Zeile, der Hinweis zur Sicherheit darunter - sonst
+     quetscht er sich zwischen die Knöpfe und bricht dreizeilig um. */
+  .actions { flex-wrap: wrap; gap: 10px; }
+  .actions .btn { min-height: 44px; }
+  .actions .capture-hint {
+    order: 3;
+    flex-basis: 100%;
+    text-align: right;
+    font-size: 11.5px;
+  }
+  .btn, .btn-sm { min-height: 44px; }
+  .btn-sm { padding: 9px 14px; font-size: 15px; }
+  .btn-ghost { min-width: 44px; }
+
+  .row { flex-wrap: wrap; }
+  .row .grow { flex: 1 1 150px; }
+
+  .section { margin-bottom: 30px; }
+  code.url { font-size: 12px; padding: 10px; }
+
+  /* --- Meldung über der Leiste --- */
+
+  #toast {
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+    font-size: 15px;
+    padding: 12px 18px;
+  }
+
+  .login { margin-top: 10vh; }
+}
+
+/* Sehr schmale Geräte (iPhone SE und ähnlich) */
+@media (max-width: 360px) {
+  .wrap { padding-left: 11px; padding-right: 11px; }
+  .horizons button { font-size: 12px; }
+  .tab-label { font-size: 9.5px; }
+  .fab { width: 50px; height: 50px; right: 12px; }
+}
+
+/* Liegendes Handy: die untere Leiste frisst sonst den halben Bildschirm. */
+@media (max-height: 460px) and (orientation: landscape) {
+  nav.tabs button { min-height: 40px; }
+  .tab-label { display: none; }
+  .capture textarea { min-height: 44px; }
+  .wrap { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ======================================================================
+   Bilanz
+
+   Ein Maß pro Darstellung: Länge zeigt entweder Zeit oder Anzahl, nie
+   beides. Die Zahlen stehen als Text am Balken, damit die Aussage auch
+   ohne Farbwahrnehmung und im Ausdruck ankommt.
+   ====================================================================== */
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+
+.seg {
+  display: inline-flex;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 2px;
+  gap: 2px;
+}
+.seg button {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 13.5px;
+  padding: 6px 11px;
+  border-radius: 7px;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+}
+
+/* Kennzahlen */
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 10px;
+  text-align: center;
+}
+.tile-value {
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  line-height: 1.2;
+}
+.tile-label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Balken */
+.bars { display: flex; flex-direction: column; gap: 10px; }
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(84px, 26%) 1fr;
+  grid-template-areas: "name track" "name value";
+  gap: 3px 10px;
+  align-items: center;
+}
+.bar-name {
+  grid-area: name;
+  align-self: center;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.bar-track {
+  grid-area: track;
+  background: var(--surface-2);
+  border-radius: 5px;
+  height: 10px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 5px;   /* abgerundetes Ende am Wert */
+  min-width: 3px;
+}
+.bar-value {
+  grid-area: value;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .tiles { gap: 6px; }
+  .tile { padding: 11px 6px; }
+  .tile-value { font-size: 19px; }
+  .tile-label { font-size: 11px; }
+  .bar-row { grid-template-columns: minmax(76px, 34%) 1fr; }
+  .bar-name { font-size: 13.5px; }
+  .seg button { font-size: 13px; padding: 8px 10px; min-height: 40px; }
+}
+
+/* ======================================================================
+   Start, Unteransichten und Woche
+   ====================================================================== */
+
+.tiles-4 { grid-template-columns: repeat(4, 1fr); }
+
+.tile-action {
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.tile-action:hover { border-color: var(--muted); }
+.tile-action:active { transform: scale(.97); }
+.tile-action.accent { border-color: var(--accent); background: var(--accent-soft); }
+.tile-action.accent .tile-value { color: var(--accent); }
+.tile-action.warn { border-color: var(--warn); background: var(--warn-soft); }
+.tile-action.warn .tile-value { color: var(--warn); }
+.tile-action.alert { border-color: var(--danger); background: var(--danger-soft); }
+.tile-action.alert .tile-value { color: var(--danger); }
+
+.tile-detail {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Wer hat was */
+.person-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+
+.person-row, .free-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 9px 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.person-row:hover, .free-row:hover { border-color: var(--muted); }
+.person-row:active, .free-row:active { transform: scale(.995); }
+
+.free-row { border-style: dashed; }
+.free-row.has { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+
+.person-emoji { font-size: 20px; line-height: 1; }
+.person-name { flex: 1; font-weight: 500; }
+.person-count {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Unteransicht mit Rücksprung */
+.focus-head { margin-bottom: 12px; }
+.focus-head .back { padding-left: 0; margin-bottom: 2px; }
+.focus-head h2 { font-size: 19px; margin: 0 0 2px; }
+.focus-head .hint { margin: 0; font-size: 13px; color: var(--muted); }
+
+/* Woche */
+.week-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.week-label { flex: 1; text-align: center; }
+.week-label > div:first-child { font-weight: 600; }
+.week-sub { font-size: 12px; color: var(--muted); }
+
+.week-day { margin-bottom: 14px; }
+.week-day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.week-day-name { font-weight: 600; font-size: 15px; }
+.week-day-sum {
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.week-day.is-today .week-day-head { border-bottom-color: var(--accent); }
+.week-day.is-today .week-day-name { color: var(--accent); }
+.week-day.empty-day { margin-bottom: 8px; opacity: .55; }
+.week-day.empty-day .week-day-head { margin-bottom: 0; }
+.week-day.overdue-day .week-day-head { border-bottom-color: var(--danger); }
+.week-day.overdue-day .week-day-name { color: var(--danger); }
+
+@media (max-width: 640px) {
+  .tiles-4 { grid-template-columns: repeat(2, 1fr); }
+  .tile-action { min-height: 66px; }
+  .week-head { position: sticky; top: 0; z-index: 4; background: var(--bg); padding: 6px 0; }
+  .week-day-name { font-size: 14.5px; }
+}
+
+/* ======================================================================
+   Schaltzentrale
+
+   Aufbau von oben nach unten: was drängt, dann die Bereiche als Kacheln,
+   dann die Personen, dann die Sammlungen ohne Termindruck. Kacheln nur
+   dort, wo man wirklich hinspringt - der Rest sind schlichte Zeilen.
+   ====================================================================== */
+
+.home-section { margin-bottom: 24px; }
+.home-section h2 {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 2px 9px;
+}
+
+/* Statuszeile */
+.urgent {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin-bottom: 22px;
+}
+.urgent-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  min-height: 46px;
+  padding: 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 13px;
+  -webkit-tap-highlight-color: transparent;
+}
+.urgent-count { font-size: 18px; font-weight: 650; color: var(--text); }
+.urgent-item.accent { border-color: var(--accent); background: var(--accent-soft); }
+.urgent-item.accent .urgent-count { color: var(--accent); }
+.urgent-item.warn { border-color: var(--warn); background: var(--warn-soft); }
+.urgent-item.warn .urgent-count { color: var(--warn); }
+.urgent-item.alert { border-color: var(--danger); background: var(--danger-soft); }
+.urgent-item.alert .urgent-count { color: var(--danger); }
+
+/* Bereichskacheln */
+.big-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 9px;
+}
+.big-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 96px;
+  padding: 13px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.big-tile:hover { border-color: var(--accent); }
+.big-tile:active { transform: scale(.98); }
+.big-emoji { font-size: 23px; line-height: 1.2; }
+.big-name {
+  font-weight: 550;
+  font-size: 14.5px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  margin-top: 2px;
+}
+.big-count {
+  margin-top: auto;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.big-tile.is-empty { box-shadow: none; opacity: .6; }
+.big-tile.is-empty .big-count { font-style: italic; }
+
+/* Schlichte Zeilen */
+.rows { display: flex; flex-direction: column; gap: 5px; }
+.row-link {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 48px;
+  padding: 9px 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+.row-link:hover { border-color: var(--accent); }
+.row-link:active { transform: scale(.995); }
+.row-emoji { font-size: 18px; line-height: 1; width: 22px; text-align: center; }
+.row-name { flex: 1; font-weight: 500; overflow-wrap: anywhere; }
+.row-meta {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.row-arrow { color: var(--muted); font-size: 18px; line-height: 1; }
+
+.row-link.free { border-style: dashed; }
+.row-link.free.has {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+@media (max-width: 640px) {
+  .big-tiles { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .big-tile { min-height: 92px; padding: 12px; }
+  .big-name { font-size: 14px; }
+  .urgent-item { flex-direction: column; gap: 1px; justify-content: center; min-height: 54px; }
+  .urgent-count { font-size: 19px; }
+}

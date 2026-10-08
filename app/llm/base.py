@@ -1,0 +1,74 @@
+"""Gemeinsamer HTTP-Unterbau für alle LLM-Anbieter.
+
+Bewusst ohne SDKs: Die App soll ohne `pip install` starten, und vier Anbieter
+über einen einzigen, gleich aussehenden HTTP-Aufruf sind leichter zu warten
+als vier verschiedene Client-Bibliotheken.
+"""
+
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.request
+
+
+class LLMError(RuntimeError):
+    """Anbieter nicht erreichbar, abgelehnt oder Antwort unbrauchbar."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+
+def post_json(url: str, payload: dict, headers: dict, timeout: int = 60) -> dict:
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=body, method="POST")
+    request.add_header("Content-Type", "application/json")
+    for key, value in headers.items():
+        request.add_header(key, value)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        raise LLMError(f"HTTP {exc.code}: {detail}", status=exc.code) from exc
+    except urllib.error.URLError as exc:
+        raise LLMError(f"Nicht erreichbar: {exc.reason}") from exc
+    except TimeoutError as exc:
+        raise LLMError("Zeitüberschreitung") from exc
+
+
+def extract_json(text: str) -> dict:
+    """JSON aus einer Modellantwort holen, auch wenn Prosa drumherum steht.
+
+    Kleinere lokale Modelle verpacken ihre Antwort gern in einen Codeblock,
+    schreiben "json" davor oder verdoppeln die äußeren Klammern.
+    """
+    text = (text or "").strip()
+
+    if "```" in text:
+        parts = text.split("```")
+        # Der längste Abschnitt zwischen den Zäunen ist der Inhalt.
+        text = max(parts[1::2] or parts, key=len).strip()
+    text = text.removeprefix("json").strip()
+
+    candidates = [text]
+    start, end = text.find("{"), text.rfind("}")
+    if start != -1 and end > start:
+        inner = text[start:end + 1]
+        candidates.append(inner)
+        # "{{...}}" -> "{...}"
+        if inner.startswith("{{") and inner.endswith("}}"):
+            candidates.append(inner[1:-1])
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+
+    raise LLMError(f"Antwort war kein gültiges JSON: {text[:200]}")

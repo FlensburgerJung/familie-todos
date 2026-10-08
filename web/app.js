@@ -1,0 +1,1512 @@
+/* Familie ToDos - Frontend ohne Framework.
+   Alle Texte im DOM werden über textContent gesetzt, nie über innerHTML. */
+
+const state = {
+  todos: [], lists: [], people: [], settings: {}, keys: {},
+  horizons: {}, repeats: {}, efforts: [], listKinds: {},
+  engineChain: [], deployment: {},
+  tab: 'start',
+  horizon: 'soon',
+  busy: false,
+  statsRange: 7,        // Tage; 0 = alles
+  statsMeasure: 'time', // 'time' oder 'count'
+  focus: null,          // vom Start aus geöffnete Unteransicht
+  weekOffset: 0,        // 0 = laufende Woche
+};
+
+const QUEUE_KEY = 'familie-todos-queue';
+const SOON_DAYS = 7;
+
+// Am Telefon soll nach dem Absenden die Tastatur zugehen, damit man sieht,
+// wohin der Einwurf einsortiert wurde. Mit Maus bleibt der Fokus im Feld.
+const isTouch = window.matchMedia('(pointer: coarse)').matches;
+
+/* ---------- kleine Helfer ---------- */
+
+function el(tag, props = {}, children = []) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (value === null || value === undefined || value === false) continue;
+    if (key === 'text') node.textContent = value;
+    else if (key === 'class') node.className = value;
+    else if (key === 'html') node.innerHTML = value;   // nur für eigene Markup-Fragmente
+    else if (key.startsWith('on')) node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value === true ? '' : value);
+  }
+  for (const child of [].concat(children)) {
+    if (child) node.append(child.nodeType ? child : document.createTextNode(child));
+  }
+  return node;
+}
+
+function today() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const [y, m, d] = value.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
+function daysUntil(value) {
+  const date = parseDate(value);
+  if (!date) return null;
+  return Math.round((date - today()) / 86400000);
+}
+
+function formatDue(value) {
+  const days = daysUntil(value);
+  if (days === null) return 'ohne Datum';
+  if (days === 0) return 'heute';
+  if (days === 1) return 'morgen';
+  if (days === -1) return 'gestern';
+  if (days < 0) return `${-days} Tage überfällig`;
+  if (days < 7) return `in ${days} Tagen`;
+  const date = parseDate(value);
+  return date.toLocaleDateString('de-DE', { day: '2-digit', month: 'short' });
+}
+
+function formatEffort(minutes) {
+  minutes = Number(minutes) || 0;
+  if (minutes <= 0) return 'ohne Angabe';
+  if (minutes < 60) return `${minutes} Min`;
+  const hours = Math.floor(minutes / 60), rest = minutes % 60;
+  return rest === 0 ? `${hours} h` : `${hours}:${String(rest).padStart(2, '0')} h`;
+}
+
+function toast(message, isError = false) {
+  const node = document.getElementById('toast');
+  node.textContent = message;
+  node.className = 'show' + (isError ? ' error' : '');
+  clearTimeout(node._timer);
+  node._timer = setTimeout(() => { node.className = ''; }, isError ? 6000 : 3500);
+}
+
+async function api(path, method = 'GET', body) {
+  const response = await fetch(path, {
+    method,
+    headers: body ? { 'Content-Type': 'application/json' } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (response.status === 401 && path !== '/api/login') {
+    // Sitzung abgelaufen oder von anderswo beendet.
+    showLogin('Die Anmeldung ist abgelaufen.');
+    throw new Error('Nicht angemeldet');
+  }
+  if (!response.ok) throw new Error(data.error || `Fehler ${response.status}`);
+  return data;
+}
+
+/* ---------- Anmeldung ---------- */
+
+function showLogin(message) {
+  const wrap = document.querySelector('.wrap');
+  wrap.textContent = '';
+  const fab = document.getElementById('fab');
+  if (fab) fab.hidden = true;
+
+  const input = el('input', {
+    type: 'password', autocomplete: 'current-password',
+    placeholder: 'Familienpasswort', autofocus: true,
+  });
+  const error = el('div', { class: 'login-error', text: message || '' });
+  const button = el('button', { class: 'btn btn-primary', type: 'submit', text: 'Anmelden' });
+
+  const form = el('form', {
+    class: 'login',
+    onsubmit: async event => {
+      event.preventDefault();
+      button.disabled = true;
+      button.textContent = 'Moment…';
+      try {
+        await api('/api/login', 'POST', { password: input.value });
+        location.reload();
+      } catch (err) {
+        error.textContent = err.message;
+        input.value = '';
+        input.focus();
+        button.disabled = false;
+        button.textContent = 'Anmelden';
+      }
+    },
+  }, [
+    el('h1', { text: 'Familie ToDos' }),
+    el('p', { text: 'Bitte einmal anmelden, danach bleibt das Gerät angemeldet.' }),
+    input, error, button,
+  ]);
+
+  wrap.append(form);
+}
+
+/* ---------- Offline-Warteschlange ---------- */
+
+function readQueue() {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function writeQueue(items) {
+  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(items)); } catch { /* voll oder gesperrt */ }
+}
+
+function enqueue(entry) {
+  const queue = readQueue();
+  queue.push(entry);
+  writeQueue(queue);
+}
+
+async function flushQueue() {
+  const queue = readQueue();
+  if (!queue.length) return;
+  const remaining = [];
+  for (const entry of queue) {
+    try { await api('/api/capture', 'POST', entry); }
+    catch { remaining.push(entry); }
+  }
+  writeQueue(remaining);
+  const sent = queue.length - remaining.length;
+  if (sent > 0) {
+    toast(`${sent} nachgereicht${sent > 1 ? 'e Einträge' : 'er Eintrag'}.`);
+    await refresh();
+  }
+}
+
+/* ---------- Daten ---------- */
+
+async function refresh() {
+  const data = await api('/api/state');
+  Object.assign(state, data);
+  render();
+}
+
+/* ---------- Ableitungen ---------- */
+
+const openTodos = () => state.todos.filter(t => t.status === 'open');
+const inboxTodos = () => state.todos.filter(t => t.status === 'inbox');
+const overdueTodos = () => openTodos().filter(t => (daysUntil(t.dueDate) ?? 99) < 0);
+const soonTodos = () => openTodos().filter(t => {
+  const days = daysUntil(t.dueDate);
+  return days !== null && days >= 0 && days <= SOON_DAYS;
+});
+
+const listById = id => state.lists.find(l => l.id === id);
+const personById = id => state.people.find(p => p.id === id);
+
+/* Wünsche und Medien sind Merklisten: kein Termin, keine Überfälligkeit.
+   Ohne diese Unterscheidung würde jeder Buchtipp irgendwann als überfällig
+   erscheinen. */
+const listKind = id => (listById(id) || {}).kind || 'tasks';
+const isTask = todo => listKind(todo.listId) === 'tasks';
+
+const todayTodos = () => openTodos().filter(
+  t => isTask(t) && (daysUntil(t.dueDate) ?? 99) <= 0);
+const unassignedTodos = () => openTodos().filter(t => isTask(t) && !t.assigneeId);
+const repeatingTodos = () => openTodos().filter(t => t.repeat);
+const kindTodos = kind => openTodos().filter(t => listKind(t.listId) === kind);
+const personTodos = id => openTodos().filter(t => isTask(t) && t.assigneeId === id);
+
+function sumMinutes(todos) {
+  return todos.reduce((total, t) => total + (Number(t.minutes) || 0), 0);
+}
+
+/* Was eine vom Start geöffnete Unteransicht zeigt. */
+const FOCUS_VIEWS = {
+  today: { title: 'Heute fällig', get: todayTodos },
+  soon: { title: 'Die nächsten Tage', get: () => soonTodos().filter(isTask) },
+  overdue: { title: 'Überfällig', get: () => overdueTodos().filter(isTask) },
+  inbox: { title: 'Kurz bestätigen', get: inboxTodos },
+  unassigned: {
+    title: 'Noch niemandem zugewiesen',
+    hint: 'Nimmt sich, wer gerade Luft hat.',
+    get: unassignedTodos,
+  },
+  repeating: {
+    title: 'Regelmäßige Aufgaben',
+    hint: 'Nach dem Abhaken entsteht jeweils der nächste Termin.',
+    get: repeatingTodos,
+  },
+  wishes: { title: 'Wünsche', get: () => kindTodos('wishes') },
+  media: { title: 'Bücher, Filme & Podcasts', get: () => kindTodos('media') },
+};
+
+/* ---------- Bausteine ---------- */
+
+function metaChips(todo) {
+  const chips = [];
+  const list = listById(todo.listId);
+  if (list) chips.push(el('span', { class: 'chip', text: `${list.emoji} ${list.name}` }));
+
+  const person = personById(todo.assigneeId);
+  if (person) chips.push(el('span', { class: 'chip', text: `${person.emoji} ${person.name}` }));
+
+  if (todo.dueDate) {
+    const days = daysUntil(todo.dueDate);
+    const cls = days < 0 ? 'chip due-over' : days <= SOON_DAYS ? 'chip due-soon' : 'chip';
+    chips.push(el('span', { class: cls, text: formatDue(todo.dueDate) }));
+  }
+  if (todo.priority === 'high') chips.push(el('span', { class: 'chip prio-high', text: 'wichtig' }));
+  if (todo.priority === 'low') chips.push(el('span', { class: 'chip', text: 'kann warten' }));
+  if (todo.repeat && state.repeats[todo.repeat]) {
+    chips.push(el('span', { class: 'chip repeat', text: `↻ ${state.repeats[todo.repeat]}` }));
+  }
+  if (todo.minutes > 0) chips.push(el('span', { class: 'chip', text: formatEffort(todo.minutes) }));
+  return el('div', { class: 'meta' }, chips);
+}
+
+function todoCard(todo, { overdue = false } = {}) {
+  const check = el('button', {
+    class: 'check',
+    title: 'Erledigt',
+    'aria-label': `„${todo.title}“ als erledigt markieren`,
+    text: '✓',
+    onclick: async () => {
+      check.disabled = true;
+      try {
+        const result = await api(`/api/todos/${todo.id}`, 'PATCH', { status: 'done' });
+        toast(result.next
+          ? `Erledigt. Wieder fällig ${formatDue(result.next.dueDate)}.`
+          : 'Erledigt. 🎉');
+        await refresh();
+      } catch (error) { toast(error.message, true); check.disabled = false; }
+    },
+  });
+
+  const body = el('div', { class: 'todo-body' }, [
+    el('div', { class: 'todo-title', text: todo.title }),
+    todo.note ? el('div', { class: 'todo-note', text: todo.note }) : null,
+    metaChips(todo),
+  ]);
+
+  const edit = el('button', {
+    class: 'btn btn-ghost btn-sm', text: '⋯', title: 'Bearbeiten',
+    onclick: () => openEditor(todo),
+  });
+
+  return el('div', { class: 'card' + (overdue ? ' overdue' : '') },
+    el('div', { class: 'todo' }, [check, body, edit]));
+}
+
+/* Karte für einen Eintrag, bei dem sich das Modell nicht sicher war. */
+function reviewCard(todo) {
+  const suggestion = todo.suggestion || {};
+  const wantsNewList = Boolean(suggestion.newList);
+
+  const titleInput = el('input', { type: 'text', value: todo.title });
+
+  const listSelect = el('select', {}, [
+    el('option', { value: '', text: '— Liste wählen —' }),
+    ...state.lists.map(list => el('option', {
+      value: list.id, text: `${list.emoji} ${list.name}`,
+      selected: list.id === todo.listId,
+    })),
+    el('option', {
+      value: '__new__', text: wantsNewList ? `➕ Neue Liste: ${suggestion.newList}` : '➕ Neue Liste…',
+      selected: wantsNewList && !todo.listId,
+    }),
+  ]);
+
+  const newListInput = el('input', {
+    type: 'text', placeholder: 'Name der neuen Liste',
+    value: suggestion.newList || '',
+  });
+  const newListWrap = el('label', { class: 'field wide' }, [
+    el('span', { text: 'Neue Liste' }), newListInput,
+  ]);
+  const syncNewList = () => { newListWrap.hidden = listSelect.value !== '__new__'; };
+  listSelect.addEventListener('change', syncNewList);
+
+  const personSelect = el('select', {}, [
+    el('option', { value: '', text: '— niemand —' }),
+    ...state.people.map(person => el('option', {
+      value: person.id, text: `${person.emoji} ${person.name}`,
+      selected: person.id === todo.assigneeId,
+    })),
+  ]);
+
+  const dueInput = el('input', { type: 'date', value: todo.dueDate || '' });
+
+  const prioSelect = el('select', {}, [
+    ['low', 'kann warten'], ['normal', 'normal'], ['high', 'wichtig'],
+  ].map(([value, label]) => el('option', {
+    value, text: label, selected: todo.priority === value,
+  })));
+
+  const repeatSelect = el('select', {}, Object.entries(state.repeats).map(
+    ([value, label]) => el('option', {
+      value, text: label, selected: (todo.repeat || '') === value,
+    })));
+
+  const effortSelect = el('select', {}, (state.efforts || [0]).map(
+    minutes => el('option', {
+      value: String(minutes), text: formatEffort(minutes),
+      selected: Number(todo.minutes || 0) === minutes,
+    })));
+
+  const confirmBtn = el('button', { class: 'btn btn-primary', text: 'Passt so' });
+  confirmBtn.addEventListener('click', async () => {
+    confirmBtn.disabled = true;
+    const payload = {
+      title: titleInput.value,
+      assigneeId: personSelect.value,
+      dueDate: dueInput.value,
+      priority: prioSelect.value,
+      repeat: repeatSelect.value,
+      minutes: Number(effortSelect.value),
+    };
+    if (listSelect.value === '__new__') {
+      if (!newListInput.value.trim()) {
+        toast('Bitte der neuen Liste einen Namen geben.', true);
+        confirmBtn.disabled = false;
+        return;
+      }
+      payload.newListName = newListInput.value.trim();
+      payload.newListEmoji = suggestion.newListEmoji || '📋';
+    } else {
+      payload.listId = listSelect.value;
+    }
+    try {
+      await api(`/api/todos/${todo.id}/confirm`, 'POST', payload);
+      toast('Einsortiert.');
+      await refresh();
+    } catch (error) { toast(error.message, true); confirmBtn.disabled = false; }
+  });
+
+  const deleteBtn = el('button', {
+    class: 'btn btn-ghost btn-sm', text: 'Verwerfen',
+    onclick: async () => {
+      try {
+        await api(`/api/todos/${todo.id}`, 'DELETE');
+        await refresh();
+      } catch (error) { toast(error.message, true); }
+    },
+  });
+
+  const card = el('div', { class: 'card review' }, [
+    el('label', { class: 'field' }, [el('span', { text: 'Todo' }), titleInput]),
+    todo.question ? el('div', { class: 'question', text: `❓ ${todo.question}` }) : null,
+    todo.rawInput && todo.rawInput !== todo.title
+      ? el('div', { class: 'todo-note', text: `Eingeworfen: „${todo.rawInput}“` }) : null,
+    el('div', { class: 'fields' }, [
+      el('label', { class: 'field wide' }, [el('span', { text: 'Liste' }), listSelect]),
+      newListWrap,
+      el('label', { class: 'field' }, [el('span', { text: 'Wer' }), personSelect]),
+      el('label', { class: 'field' }, [el('span', { text: 'Fällig' }), dueInput]),
+      el('label', { class: 'field' }, [el('span', { text: 'Priorität' }), prioSelect]),
+      el('label', { class: 'field' }, [el('span', { text: 'Wiederholung' }), repeatSelect]),
+      el('label', { class: 'field' }, [el('span', { text: 'Dauer' }), effortSelect]),
+    ]),
+    el('div', { class: 'actions' }, [
+      confirmBtn,
+      el('span', { class: 'spacer' }),
+      el('span', {
+        class: 'capture-hint',
+        text: `${Math.round((todo.confidence || 0) * 100)} % sicher · ${todo.engine}`,
+      }),
+      deleteBtn,
+    ]),
+  ]);
+  syncNewList();
+  return card;
+}
+
+/* Nachträgliches Bearbeiten eines bereits einsortierten Todos. */
+function openEditor(todo) {
+  const card = reviewCard({ ...todo, question: '', suggestion: {} });
+  card.classList.remove('review');
+  const container = document.getElementById('view');
+  container.prepend(card);
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ---------- Ansichten ---------- */
+
+function viewInbox() {
+  const items = inboxTodos();
+  if (!items.length) {
+    return el('div', { class: 'empty' }, [
+      el('strong', { text: 'Nichts zu bestätigen' }),
+      'Alles Eingeworfene wurde sicher einsortiert.',
+    ]);
+  }
+  return el('div', {}, [
+    el('p', { class: 'hint', style: 'font-size:13px;color:var(--muted);margin:0 2px 10px',
+      text: 'Hier war sich die Einordnung nicht sicher. Kurz prüfen, dann ist es durch.' }),
+    ...items.map(reviewCard),
+  ]);
+}
+
+function viewLists() {
+  const items = openTodos();
+  if (!items.length) {
+    return el('div', { class: 'empty' }, [
+      el('strong', { text: 'Alles abgearbeitet' }), 'Nichts Offenes in den Listen.',
+    ]);
+  }
+  const groups = el('div', {});
+  for (const list of state.lists) {
+    const listItems = items.filter(t => t.listId === list.id);
+    if (!listItems.length) continue;
+    groups.append(el('section', { class: 'list-group' }, [
+      el('div', { class: 'list-head' }, [
+        `${list.emoji} ${list.name}`,
+        el('span', { class: 'count', text: String(listItems.length) }),
+      ]),
+      ...listItems.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })),
+    ]));
+  }
+  const orphans = items.filter(t => !listById(t.listId));
+  if (orphans.length) {
+    groups.append(el('section', { class: 'list-group' }, [
+      el('div', { class: 'list-head' }, ['📥 Ohne Liste',
+        el('span', { class: 'count', text: String(orphans.length) })]),
+      ...orphans.map(t => todoCard(t)),
+    ]));
+  }
+  return groups;
+}
+
+function viewSoon() {
+  const items = soonTodos().sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+  if (!items.length) {
+    return el('div', { class: 'empty' }, [
+      el('strong', { text: 'Die nächsten Tage sind frei' }),
+      `Nichts fällig in den nächsten ${SOON_DAYS} Tagen.`,
+    ]);
+  }
+  const byDay = new Map();
+  for (const todo of items) {
+    const key = formatDue(todo.dueDate);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(todo);
+  }
+  return el('div', {}, [...byDay.entries()].map(([label, group]) =>
+    el('section', { class: 'list-group' }, [
+      el('div', { class: 'list-head' }, [label,
+        el('span', { class: 'count', text: String(group.length) })]),
+      ...group.map(t => todoCard(t)),
+    ])));
+}
+
+function viewOverdue() {
+  const items = overdueTodos().sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+  if (!items.length) {
+    return el('div', { class: 'empty' }, [
+      el('strong', { text: 'Nichts überfällig' }), 'Sauber. 👏',
+    ]);
+  }
+  return el('div', {}, items.map(t => todoCard(t, { overdue: true })));
+}
+
+
+
+/* ---------- Start ----------
+   Eine Übersicht, von der aus man in jede Teilansicht springt: erst was
+   drängt, dann wer was hat, dann die Sammlungen ohne Termindruck. */
+
+function openFocus(kind, id) {
+  state.focus = { kind, id };
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function tile(label, value, detail, tone, onclick) {
+  return el('button', {
+    class: 'tile tile-action' + (tone ? ' ' + tone : ''),
+    type: 'button', onclick,
+  }, [
+    el('div', { class: 'tile-value', text: String(value) }),
+    el('div', { class: 'tile-label', text: label }),
+    detail ? el('div', { class: 'tile-detail', text: detail }) : null,
+  ]);
+}
+
+function viewFocus() {
+  const { kind, id } = state.focus;
+  let title, hint, todos;
+
+  if (kind === 'person') {
+    const person = personById(id);
+    title = person ? `${person.emoji} ${person.name}` : 'Person';
+    todos = personTodos(id);
+    hint = `${todos.length} offen · ${formatEffort(sumMinutes(todos))}`;
+  } else if (kind === 'list') {
+    const list = listById(id);
+    title = list ? `${list.emoji} ${list.name}` : 'Liste';
+    hint = list ? list.description : '';
+    todos = openTodos().filter(t => t.listId === id);
+  } else {
+    const spec = FOCUS_VIEWS[kind];
+    title = spec.title;
+    hint = spec.hint || '';
+    todos = spec.get();
+  }
+
+  const back = el('button', {
+    class: 'btn btn-ghost btn-sm back', type: 'button', text: '‹ Start',
+    onclick: () => { state.focus = null; render(); },
+  });
+
+  const body = todos.length
+    ? el('div', {}, kind === 'inbox'
+        ? todos.map(reviewCard)
+        : todos.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })))
+    : el('div', { class: 'empty' }, [
+        el('strong', { text: 'Nichts hier' }), 'Diese Ansicht ist gerade leer.']);
+
+  return el('div', {}, [
+    el('div', { class: 'focus-head' }, [
+      back,
+      el('h2', { text: title }),
+      hint ? el('p', { class: 'hint', text: hint }) : null,
+    ]),
+    body,
+  ]);
+}
+
+function viewStart() {
+  if (state.focus) return viewFocus();
+
+  const view = el('div', { class: 'home' });
+  const today = todayTodos();
+  const overdue = overdueTodos().filter(isTask);
+  const inbox = inboxTodos();
+
+  /* 1. Was drängt - eine schmale Zeile, kein Kachelblock. Sie soll auffallen,
+        wenn etwas brennt, und sonst wenig Platz nehmen. */
+  const urgent = el('div', { class: 'urgent' }, [
+    el('button', {
+      class: 'urgent-item' + (overdue.length ? ' alert' : ''), type: 'button',
+      onclick: () => openFocus('overdue'),
+    }, [
+      el('span', { class: 'urgent-count', text: String(overdue.length) }),
+      el('span', { text: 'überfällig' }),
+    ]),
+    el('button', {
+      class: 'urgent-item' + (today.length ? ' accent' : ''), type: 'button',
+      onclick: () => openFocus('today'),
+    }, [
+      el('span', { class: 'urgent-count', text: String(today.length) }),
+      el('span', { text: 'heute' }),
+    ]),
+    el('button', {
+      class: 'urgent-item' + (inbox.length ? ' warn' : ''), type: 'button',
+      onclick: () => openFocus('inbox'),
+    }, [
+      el('span', { class: 'urgent-count', text: String(inbox.length) }),
+      el('span', { text: 'zu prüfen' }),
+    ]),
+  ]);
+  view.append(urgent);
+
+  /* 2. Bereiche - je eine Kachel pro Aufgaben- und Terminliste. */
+  const countOf = id => openTodos().filter(t => t.listId === id);
+
+  const bigTile = (list) => {
+    const todos = countOf(list.id);
+    const minutes = sumMinutes(todos);
+    return el('button', {
+      class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
+      onclick: () => openFocus('list', list.id),
+    }, [
+      el('span', { class: 'big-emoji', text: list.emoji }),
+      el('span', { class: 'big-name', text: list.name }),
+      el('span', { class: 'big-count',
+        text: todos.length
+          ? (minutes ? `${todos.length} · ${formatEffort(minutes)}` : `${todos.length}`)
+          : 'leer' }),
+    ]);
+  };
+
+  const areaLists = state.lists.filter(
+    l => l.kind === 'tasks' || l.kind === 'appointments');
+  // Listen mit Inhalt zuerst, damit das Volle oben steht.
+  areaLists.sort((a, b) => countOf(b.id).length - countOf(a.id).length);
+
+  view.append(el('section', { class: 'home-section' }, [
+    el('h2', { text: 'Bereiche' }),
+    el('div', { class: 'big-tiles' }, areaLists.map(bigTile)),
+  ]));
+
+  /* 3. Wer - Aufgaben je Person, plus das Unverteilte. */
+  const unassigned = unassignedTodos();
+  const personRow = (person) => {
+    const todos = personTodos(person.id);
+    return el('button', {
+      class: 'row-link', type: 'button',
+      onclick: () => openFocus('person', person.id),
+    }, [
+      el('span', { class: 'row-emoji', text: person.emoji }),
+      el('span', { class: 'row-name', text: person.name }),
+      el('span', { class: 'row-meta',
+        text: todos.length ? `${todos.length} · ${formatEffort(sumMinutes(todos))}` : '—' }),
+      el('span', { class: 'row-arrow', text: '›' }),
+    ]);
+  };
+
+  view.append(el('section', { class: 'home-section' }, [
+    el('h2', { text: 'Wer macht was' }),
+    el('div', { class: 'rows' }, [
+      ...state.people.map(personRow),
+      el('button', {
+        class: 'row-link free' + (unassigned.length ? ' has' : ''), type: 'button',
+        onclick: () => openFocus('unassigned'),
+      }, [
+        el('span', { class: 'row-emoji', text: '🙋' }),
+        el('span', { class: 'row-name', text: 'Frei zu vergeben' }),
+        el('span', { class: 'row-meta',
+          text: unassigned.length
+            ? `${unassigned.length} · ${formatEffort(sumMinutes(unassigned))}`
+            : 'alles verteilt' }),
+        el('span', { class: 'row-arrow', text: '›' }),
+      ]),
+    ]),
+  ]));
+
+  /* 4. Wunschzettel - je einer pro Person. */
+  const wishLists = state.lists.filter(l => l.kind === 'wishes');
+  if (wishLists.length) {
+    view.append(el('section', { class: 'home-section' }, [
+      el('h2', { text: 'Wunschzettel' }),
+      el('div', { class: 'rows' }, wishLists.map(list => el('button', {
+        class: 'row-link', type: 'button',
+        onclick: () => openFocus('list', list.id),
+      }, [
+        el('span', { class: 'row-emoji', text: list.emoji }),
+        el('span', { class: 'row-name', text: list.name }),
+        el('span', { class: 'row-meta',
+          text: countOf(list.id).length ? String(countOf(list.id).length) : '—' }),
+        el('span', { class: 'row-arrow', text: '›' }),
+      ]))),
+    ]));
+  }
+
+  /* 5. Merken - alles ohne Termindruck. */
+  const mediaLists = state.lists.filter(l => l.kind === 'media');
+  const repeating = repeatingTodos();
+  view.append(el('section', { class: 'home-section' }, [
+    el('h2', { text: 'Merken' }),
+    el('div', { class: 'rows' }, [
+      ...mediaLists.map(list => el('button', {
+        class: 'row-link', type: 'button',
+        onclick: () => openFocus('list', list.id),
+      }, [
+        el('span', { class: 'row-emoji', text: list.emoji }),
+        el('span', { class: 'row-name', text: list.name }),
+        el('span', { class: 'row-meta',
+          text: countOf(list.id).length ? String(countOf(list.id).length) : '—' }),
+        el('span', { class: 'row-arrow', text: '›' }),
+      ])),
+      el('button', {
+        class: 'row-link', type: 'button', onclick: () => openFocus('repeating'),
+      }, [
+        el('span', { class: 'row-emoji', text: '↻' }),
+        el('span', { class: 'row-name', text: 'Regelmäßige Aufgaben' }),
+        el('span', { class: 'row-meta',
+          text: repeating.length ? String(repeating.length) : '—' }),
+        el('span', { class: 'row-arrow', text: '›' }),
+      ]),
+    ]),
+  ]));
+
+  return view;
+}
+
+/* ---------- Woche ----------
+   Sieben Tage untereinander statt als Raster: am Telefon ist eine Spalte
+   lesbar, ein 7-Spalten-Gitter nicht. Gezeigt werden nur echte Aufgaben -
+   Wünsche und Medien haben keinen Termin. */
+
+const WEEKDAYS = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag',
+                  'Samstag', 'Sonntag'];
+const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli',
+                'August', 'September', 'Oktober', 'November', 'Dezember'];
+
+function mondayOf(date) {
+  const result = new Date(date);
+  const weekday = (result.getDay() + 6) % 7;   // Montag = 0
+  result.setDate(result.getDate() - weekday);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function isoOf(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-`
+       + `${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function viewWeek() {
+  const start = mondayOf(today());
+  start.setDate(start.getDate() + state.weekOffset * 7);
+
+  const days = [...Array(7)].map((_, i) => {
+    const date = new Date(start);
+    date.setDate(date.getDate() + i);
+    return date;
+  });
+
+  const open = openTodos().filter(isTask);
+  const byDay = new Map(days.map(d => [isoOf(d), []]));
+  for (const todo of open) {
+    if (byDay.has(todo.dueDate)) byDay.get(todo.dueDate).push(todo);
+  }
+
+  // Alles, was vor dieser Woche liegt, würde sonst unsichtbar bleiben.
+  const before = state.weekOffset === 0
+    ? open.filter(t => t.dueDate && t.dueDate < isoOf(days[0]))
+    : [];
+
+  const last = days[6];
+  const sameMonth = start.getMonth() === last.getMonth();
+  const label = sameMonth
+    ? `${start.getDate()}.–${last.getDate()}. ${MONTHS[start.getMonth()]}`
+    : `${start.getDate()}. ${MONTHS[start.getMonth()].slice(0, 3)} – `
+      + `${last.getDate()}. ${MONTHS[last.getMonth()].slice(0, 3)}`;
+
+  const header = el('div', { class: 'week-head' }, [
+    el('button', { class: 'btn btn-sm', type: 'button', text: '‹',
+      'aria-label': 'Woche zurück',
+      onclick: () => { state.weekOffset -= 1; render(); } }),
+    el('div', { class: 'week-label' }, [
+      el('div', { text: label }),
+      el('div', { class: 'week-sub',
+        text: state.weekOffset === 0 ? 'diese Woche'
+            : state.weekOffset === 1 ? 'nächste Woche'
+            : state.weekOffset === -1 ? 'letzte Woche'
+            : `${state.weekOffset > 0 ? '+' : ''}${state.weekOffset} Wochen` }),
+    ]),
+    el('button', { class: 'btn btn-sm', type: 'button', text: '›',
+      'aria-label': 'Woche vor',
+      onclick: () => { state.weekOffset += 1; render(); } }),
+    state.weekOffset !== 0 ? el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button', text: 'heute',
+      onclick: () => { state.weekOffset = 0; render(); },
+    }) : null,
+  ]);
+
+  const view = el('div', {}, header);
+
+  if (before.length) {
+    view.append(el('section', { class: 'week-day overdue-day' }, [
+      el('div', { class: 'week-day-head' }, [
+        el('span', { class: 'week-day-name', text: 'Liegengeblieben' }),
+        el('span', { class: 'week-day-sum',
+          text: `${before.length} · ${formatEffort(sumMinutes(before))}` }),
+      ]),
+      ...before.map(t => todoCard(t, { overdue: true })),
+    ]));
+  }
+
+  const todayIso = isoOf(today());
+  for (const date of days) {
+    const iso = isoOf(date);
+    const todos = byDay.get(iso) || [];
+    const isToday = iso === todayIso;
+    view.append(el('section', {
+      class: 'week-day' + (isToday ? ' is-today' : '') + (todos.length ? '' : ' empty-day'),
+    }, [
+      el('div', { class: 'week-day-head' }, [
+        el('span', { class: 'week-day-name',
+          text: `${WEEKDAYS[(date.getDay() + 6) % 7]}, ${date.getDate()}.` }),
+        el('span', { class: 'week-day-sum',
+          text: todos.length ? `${todos.length} · ${formatEffort(sumMinutes(todos))}` : '—' }),
+      ]),
+      ...todos.map(t => todoCard(t)),
+    ]));
+  }
+
+  return view;
+}
+
+/* ---------- Bilanz ----------
+   Zwei Maße, die nicht vermischt werden dürfen: Anzahl der Aufgaben und
+   aufgewendete Zeit. Beide auf eine Achse zu legen wäre irreführend - wer
+   zehn Fünf-Minuten-Sachen erledigt, hat nicht so viel getan wie jemand mit
+   zwei Stunden Großputz. Deshalb ein Umschalter statt zweier Skalen. */
+
+function withinRange(isoTimestamp, days) {
+  if (!days) return true;
+  if (!isoTimestamp) return false;
+  const when = new Date(isoTimestamp);
+  if (isNaN(when)) return false;
+  return (Date.now() - when.getTime()) <= days * 86400000;
+}
+
+function groupStats(todos, keyOf) {
+  const groups = new Map();
+  for (const todo of todos) {
+    const key = keyOf(todo) || '';
+    if (!groups.has(key)) groups.set(key, { key, count: 0, minutes: 0, unknown: 0 });
+    const group = groups.get(key);
+    group.count += 1;
+    group.minutes += Number(todo.minutes) || 0;
+    if (!todo.minutes) group.unknown += 1;
+  }
+  return [...groups.values()];
+}
+
+/* Ein Balken je Zeile: Länge = das gewählte Maß, Zahlen stehen direkt daneben,
+   damit die Grafik auch ohne Farbwahrnehmung lesbar ist. */
+function barChart(rows, measure, labelOf) {
+  if (!rows.length) {
+    return el('p', { class: 'hint', text: 'Noch nichts erfasst.' });
+  }
+  const valueOf = row => measure === 'time' ? row.minutes : row.count;
+  const sorted = [...rows].sort((a, b) => valueOf(b) - valueOf(a));
+  const top = Math.max(...sorted.map(valueOf), 1);
+
+  return el('div', { class: 'bars' }, sorted.map(row => {
+    const value = valueOf(row);
+    const detail = measure === 'time'
+      ? `${formatEffort(row.minutes)} · ${row.count} ${row.count === 1 ? 'Aufgabe' : 'Aufgaben'}`
+      : `${row.count} ${row.count === 1 ? 'Aufgabe' : 'Aufgaben'} · ${formatEffort(row.minutes)}`;
+    const hint = row.unknown
+      ? `${row.unknown} davon ohne Zeitangabe` : 'alle mit Zeitangabe';
+    return el('div', { class: 'bar-row', title: `${labelOf(row.key)}: ${detail} (${hint})` }, [
+      el('div', { class: 'bar-name', text: labelOf(row.key) }),
+      el('div', { class: 'bar-track' },
+        el('div', {
+          class: 'bar-fill',
+          style: `width: ${Math.max(2, Math.round(value / top * 100))}%`,
+        })),
+      el('div', { class: 'bar-value', text: detail }),
+    ]);
+  }));
+}
+
+function viewStats() {
+  const people = state.people;
+  const nameOfPerson = id => {
+    const person = people.find(p => p.id === id);
+    return person ? `${person.emoji} ${person.name}` : 'ohne Zuständige';
+  };
+  const nameOfList = id => {
+    const list = listById(id);
+    return list ? `${list.emoji} ${list.name}` : 'ohne Liste';
+  };
+
+  const done = state.todos.filter(
+    t => t.status === 'done' && withinRange(t.doneAt, state.statsRange));
+  const open = state.todos.filter(t => t.status !== 'done');
+
+  const totalMinutes = done.reduce((sum, t) => sum + (Number(t.minutes) || 0), 0);
+  const withTime = done.filter(t => t.minutes > 0).length;
+  const average = withTime ? Math.round(totalMinutes / withTime) : 0;
+
+  const view = el('div', {});
+
+  /* Zeitraum und Maß - beide Regler in einer Zeile über den Zahlen. */
+  const ranges = [[7, '7 Tage'], [30, '30 Tage'], [0, 'Alles']];
+  view.append(el('div', { class: 'filters' }, [
+    el('div', { class: 'seg' }, ranges.map(([days, label]) => el('button', {
+      type: 'button', 'aria-pressed': String(state.statsRange === days), text: label,
+      onclick: () => { state.statsRange = days; render(); },
+    }))),
+    el('div', { class: 'seg' }, [['time', 'nach Zeit'], ['count', 'nach Anzahl']].map(
+      ([mode, label]) => el('button', {
+        type: 'button', 'aria-pressed': String(state.statsMeasure === mode), text: label,
+        onclick: () => { state.statsMeasure = mode; render(); },
+      }))),
+  ]));
+
+  view.append(el('div', { class: 'tiles' }, [
+    el('div', { class: 'tile' }, [
+      el('div', { class: 'tile-value', text: String(done.length) }),
+      el('div', { class: 'tile-label', text: 'erledigt' }),
+    ]),
+    el('div', { class: 'tile' }, [
+      el('div', { class: 'tile-value', text: formatEffort(totalMinutes) }),
+      el('div', { class: 'tile-label', text: 'aufgewendet' }),
+    ]),
+    el('div', { class: 'tile' }, [
+      el('div', { class: 'tile-value', text: average ? formatEffort(average) : '—' }),
+      el('div', { class: 'tile-label', text: 'je Aufgabe' }),
+    ]),
+  ]));
+
+  if (done.length && withTime < done.length) {
+    view.append(el('p', {
+      class: 'hint',
+      text: `${done.length - withTime} erledigte Aufgaben haben keine Zeitangabe und `
+          + 'zählen nur bei der Anzahl mit.',
+    }));
+  }
+
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Geschafft' }),
+    el('p', { class: 'hint', text: state.statsRange
+      ? `Erledigt in den letzten ${state.statsRange} Tagen.`
+      : 'Erledigt, seit es die App gibt.' }),
+    barChart(groupStats(done, t => t.assigneeId), state.statsMeasure, nameOfPerson),
+  ]));
+
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Noch offen' }),
+    el('p', { class: 'hint', text: 'Was gerade auf wem liegt.' }),
+    barChart(groupStats(open, t => t.assigneeId), state.statsMeasure, nameOfPerson),
+  ]));
+
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Wo die Arbeit anfällt' }),
+    el('p', { class: 'hint', text: 'Offene Aufgaben nach Bereich.' }),
+    barChart(groupStats(open, t => t.listId), state.statsMeasure, nameOfList),
+  ]));
+
+  return view;
+}
+
+/* ---------- Einstellungen ---------- */
+
+function personEditor(person) {
+  const name = el('input', { type: 'text', value: person.name });
+  const emoji = el('input', { type: 'text', value: person.emoji, maxlength: '4' });
+  const skills = el('input', {
+    type: 'text', value: (person.skills || []).join(', '),
+    placeholder: 'Kompetenzen, z. B. Handwerk, Behörden, Kita',
+  });
+  const save = el('button', {
+    class: 'btn btn-sm', text: 'Sichern',
+    onclick: async () => {
+      try {
+        await api(`/api/people/${person.id}`, 'PATCH', {
+          name: name.value, emoji: emoji.value,
+          skills: skills.value.split(',').map(s => s.trim()).filter(Boolean),
+        });
+        toast('Gespeichert.');
+        await refresh();
+      } catch (error) { toast(error.message, true); }
+    },
+  });
+  const remove = el('button', {
+    class: 'btn btn-ghost btn-sm', text: 'Löschen',
+    onclick: async () => {
+      if (!confirm(`${person.name} wirklich entfernen?`)) return;
+      await api(`/api/people/${person.id}`, 'DELETE');
+      await refresh();
+    },
+  });
+  return el('div', { class: 'card' }, [
+    el('div', { class: 'row' }, [
+      el('div', { style: 'width:56px' }, emoji),
+      el('div', { class: 'grow' }, name),
+    ]),
+    el('div', { class: 'row' }, [el('div', { class: 'grow' }, skills)]),
+    el('div', { class: 'row' }, [save, el('span', { class: 'spacer', style: 'flex:1' }), remove]),
+  ]);
+}
+
+function listEditor(list) {
+  const name = el('input', { type: 'text', value: list.name });
+  const emoji = el('input', { type: 'text', value: list.emoji, maxlength: '4' });
+  const description = el('input', {
+    type: 'text', value: list.description, placeholder: 'Wofür ist diese Liste?',
+  });
+  const keywords = el('input', {
+    type: 'text', value: (list.keywords || []).join(', '),
+    placeholder: 'Stichwörter für die Offline-Einordnung',
+  });
+  const kindSelect = el('select', {}, Object.entries(state.listKinds || {}).map(
+    ([value, label]) => el('option', {
+      value, text: label, selected: (list.kind || 'tasks') === value,
+    })));
+  const save = el('button', {
+    class: 'btn btn-sm', text: 'Sichern',
+    onclick: async () => {
+      try {
+        await api(`/api/lists/${list.id}`, 'PATCH', {
+          name: name.value, emoji: emoji.value, description: description.value,
+          kind: kindSelect.value,
+          keywords: keywords.value.split(',').map(s => s.trim()).filter(Boolean),
+        });
+        toast('Gespeichert.');
+        await refresh();
+      } catch (error) { toast(error.message, true); }
+    },
+  });
+  const count = state.todos.filter(t => t.listId === list.id && t.status !== 'done').length;
+  const remove = el('button', {
+    class: 'btn btn-ghost btn-sm', text: 'Löschen',
+    onclick: async () => {
+      const warning = count
+        ? `„${list.name}“ löschen? ${count} offene Todos landen in „Ohne Liste“.`
+        : `„${list.name}“ löschen?`;
+      if (!confirm(warning)) return;
+      await api(`/api/lists/${list.id}`, 'DELETE');
+      await refresh();
+    },
+  });
+  return el('div', { class: 'card' }, [
+    el('div', { class: 'row' }, [
+      el('div', { style: 'width:56px' }, emoji),
+      el('div', { class: 'grow' }, name),
+    ]),
+    el('div', { class: 'row' }, [el('div', { class: 'grow' }, description)]),
+    el('div', { class: 'row' }, [el('div', { class: 'grow' }, keywords)]),
+    el('div', { class: 'row' }, [
+      el('label', { class: 'field grow' }, [el('span', { text: 'Art' }), kindSelect]),
+    ]),
+    el('div', { class: 'row' }, [save, el('span', { style: 'flex:1' }), remove]),
+  ]);
+}
+
+function viewSettings() {
+  const settings = state.settings;
+  const view = el('div', {});
+
+  /* -- Personen -- */
+  const newPersonName = el('input', { type: 'text', placeholder: 'Name' });
+  const addPerson = el('button', {
+    class: 'btn btn-sm', text: 'Hinzufügen',
+    onclick: async () => {
+      const name = newPersonName.value.trim();
+      if (!name) return;
+      await api('/api/people', 'POST', { name, emoji: '🙂', skills: [] });
+      newPersonName.value = '';
+      await refresh();
+    },
+  });
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Wer gehört zur Familie?' }),
+    el('p', { class: 'hint', text: 'Die Kompetenzen entscheiden, wem die Einordnung eine Aufgabe zuweist.' }),
+    ...state.people.map(personEditor),
+    el('div', { class: 'row' }, [el('div', { class: 'grow' }, newPersonName), addPerson]),
+  ]));
+
+  /* -- Einordnung -- */
+  const providerSelect = el('select', {}, [
+    ['auto', 'Automatisch (erst Cloud, dann lokal, dann Regeln)'],
+    ['anthropic', 'Claude (Anthropic)'],
+    ['mistral', 'Mistral'],
+    ['openai', 'ChatGPT (OpenAI)'],
+    ['ollama', 'Lokal über Ollama (offline)'],
+    ['heuristic', 'Nur Regeln (ohne LLM, offline)'],
+  ].map(([value, label]) => el('option', {
+    value, text: label, selected: settings.provider === value,
+  })));
+
+  const threshold = el('input', {
+    type: 'number', min: '0', max: '1', step: '0.05',
+    value: settings.confidence_threshold || '0.7',
+  });
+
+  const autoAssign = el('input', {
+    type: 'checkbox', style: 'width:auto', checked: settings.auto_assign === '1',
+  });
+
+  const modelInputs = {
+    anthropic_model: el('input', { type: 'text', value: settings.anthropic_model || '' }),
+    mistral_model: el('input', { type: 'text', value: settings.mistral_model || '' }),
+    openai_model: el('input', { type: 'text', value: settings.openai_model || '' }),
+    ollama_model: el('input', { type: 'text', value: settings.ollama_model || '' }),
+    ollama_url: el('input', { type: 'text', value: settings.ollama_url || '' }),
+  };
+
+  const keyInputs = {};
+  const keyRows = [
+    ['anthropic_api_key', 'Claude / Anthropic'],
+    ['mistral_api_key', 'Mistral'],
+    ['openai_api_key', 'OpenAI'],
+  ].map(([field, label]) => {
+    const status = state.keys[field];
+    keyInputs[field] = el('input', {
+      type: 'password', autocomplete: 'off',
+      placeholder: status === 'env' ? 'aus Umgebungsvariable' :
+        status ? '•••••••• (gespeichert)' : 'nicht hinterlegt',
+      disabled: status === 'env',
+    });
+    return el('label', { class: 'field' }, [
+      el('span', { text: `${label}${status === 'env' ? ' — kommt aus der Umgebung' : ''}` }),
+      keyInputs[field],
+    ]);
+  });
+
+  const saveSettings = el('button', {
+    class: 'btn btn-primary', text: 'Einstellungen speichern',
+    onclick: async () => {
+      const payload = {
+        provider: providerSelect.value,
+        confidence_threshold: threshold.value,
+        auto_assign: autoAssign.checked ? '1' : '0',
+      };
+      for (const [key, input] of Object.entries(modelInputs)) payload[key] = input.value.trim();
+      for (const [key, input] of Object.entries(keyInputs)) {
+        if (!input.disabled && input.value.trim()) payload[key] = input.value.trim();
+      }
+      try {
+        await api('/api/settings', 'PUT', payload);
+        toast('Gespeichert.');
+        await refresh();
+      } catch (error) { toast(error.message, true); }
+    },
+  });
+
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Einordnung' }),
+    el('p', { class: 'hint', text: `Aktuelle Reihenfolge: ${state.engineChain.join(' → ')}` }),
+    el('label', { class: 'field' }, [el('span', { text: 'Anbieter' }), providerSelect]),
+    el('div', { class: 'fields' }, [
+      el('label', { class: 'field' }, [
+        el('span', { text: 'Ab welcher Sicherheit automatisch einsortieren?' }), threshold]),
+      el('label', { class: 'field' }, [
+        el('span', { text: 'Automatisch jemandem zuweisen' }), autoAssign]),
+    ]),
+    el('div', { class: 'fields' }, [
+      el('label', { class: 'field' }, [el('span', { text: 'Claude-Modell' }), modelInputs.anthropic_model]),
+      el('label', { class: 'field' }, [el('span', { text: 'Mistral-Modell' }), modelInputs.mistral_model]),
+      el('label', { class: 'field' }, [el('span', { text: 'OpenAI-Modell' }), modelInputs.openai_model]),
+      el('label', { class: 'field' }, [el('span', { text: 'Ollama-Modell' }), modelInputs.ollama_model]),
+      el('label', { class: 'field' }, [el('span', { text: 'Ollama-Adresse' }), modelInputs.ollama_url]),
+    ]),
+    el('h2', { text: 'API-Schlüssel', style: 'margin-top:18px' }),
+    el('p', { class: 'hint', text: 'Bleiben auf diesem Rechner (data/secrets.json, nur für dich lesbar).' }),
+    el('div', { class: 'fields' }, keyRows),
+    el('div', { class: 'actions' }, [saveSettings]),
+  ]));
+
+  /* -- Listen -- */
+  const newListName = el('input', { type: 'text', placeholder: 'Name der Liste' });
+  const addList = el('button', {
+    class: 'btn btn-sm', text: 'Hinzufügen',
+    onclick: async () => {
+      const name = newListName.value.trim();
+      if (!name) return;
+      await api('/api/lists', 'POST', { name, emoji: '📋' });
+      newListName.value = '';
+      await refresh();
+    },
+  });
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Listen' }),
+    ...state.lists.map(listEditor),
+    el('div', { class: 'row' }, [el('div', { class: 'grow' }, newListName), addList]),
+  ]));
+
+  /* -- Kalender -- */
+  const deployment = state.deployment || {};
+  // Kalender-Abos schicken keine Cookies mit; deshalb hängt der Schlüssel an der Adresse.
+  const suffix = deployment.authEnabled && deployment.calendarToken
+    ? `?token=${encodeURIComponent(deployment.calendarToken)}` : '';
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Kalender' }),
+    el('p', { class: 'hint', text: 'Diese Adresse im Kalender als Abo hinzufügen — fällige Todos erscheinen als ganztägige Termine.' }),
+    el('code', { class: 'url', text: `${location.origin}/calendar.ics${suffix}` }),
+    ...state.people.map(person => el('code', {
+      class: 'url',
+      text: `${location.origin}/calendar/${person.id}.ics${suffix}   (nur ${person.name})`,
+    })),
+    suffix ? el('p', { class: 'hint', text: 'Der Schlüssel in der Adresse ersetzt die Anmeldung — also nur an die Familie weitergeben.' }) : null,
+  ]));
+
+  /* -- Sicherung: Export und Import -- */
+  const importInput = el('input', {
+    type: 'file', accept: 'application/json,.json', style: 'display:none',
+    onchange: async event => {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      if (!confirm(`„${file.name}" einspielen? Die jetzigen Todos, Listen und Personen werden dabei ersetzt.`)) {
+        importInput.value = '';
+        return;
+      }
+      try {
+        const data = JSON.parse(await file.text());
+        const result = await api('/api/import', 'POST', { data, replace: true });
+        const counts = result.imported;
+        toast(`${counts.todos} Todos, ${counts.lists} Listen, ${counts.people} Personen übernommen.`);
+        await refresh();
+      } catch (error) {
+        toast(error.message, true);
+      } finally {
+        importInput.value = '';
+      }
+    },
+  });
+
+  view.append(el('section', { class: 'section' }, [
+    el('h2', { text: 'Sicherung und Umzug' }),
+    el('p', { class: 'hint', text: 'Eine Datei mit allen Todos, Listen, Personen und Einstellungen — zum Sichern oder um zwischen der Version zuhause und der im Internet umzuziehen. API-Schlüssel sind nicht enthalten.' }),
+    el('div', { class: 'row' }, [
+      el('a', { class: 'btn btn-sm', href: '/api/export', download: '', text: '⬇ Alles herunterladen' }),
+      el('button', { class: 'btn btn-sm', text: '⬆ Sicherung einspielen',
+        onclick: () => importInput.click() }),
+      importInput,
+    ]),
+  ]));
+
+  /* -- Betrieb -- */
+  const doneCount = state.todos.filter(t => t.status === 'done').length;
+  const backendLabel = deployment.backend === 'postgres'
+    ? 'Postgres (online)' : 'SQLite-Datei (lokal)';
+  const betrieb = [
+    el('h2', { text: 'Betrieb' }),
+    el('p', { class: 'hint', text: `Speicher: ${backendLabel} · Anmeldung: ${deployment.authEnabled ? 'aktiv' : 'aus (nur Heimnetz)'} · ${doneCount} erledigte Todos gespeichert.` }),
+    el('div', { class: 'row' }, [
+      el('button', {
+        class: 'btn btn-sm', text: 'Erledigte älter als 30 Tage löschen',
+        onclick: async () => {
+          const result = await api('/api/maintenance/purge', 'POST', { days: 30 });
+          toast(`${result.removed} gelöscht.`);
+          await refresh();
+        },
+      }),
+    ]),
+  ];
+  if (deployment.authEnabled) {
+    betrieb.push(el('div', { class: 'row' }, [
+      el('button', {
+        class: 'btn btn-sm', text: 'Von diesem Gerät abmelden',
+        onclick: async () => {
+          await api('/api/logout', 'POST', {});
+          location.reload();
+        },
+      }),
+    ]));
+  }
+  view.append(el('section', { class: 'section' }, betrieb));
+
+  return view;
+}
+
+/* ---------- Rahmen ---------- */
+
+const TABS = [
+  { id: 'start', text: 'Start', short: 'Start', icon: '🏠',
+    counter: inboxTodos, tone: 'warn' },
+  { id: 'lists', text: 'Listen', short: 'Listen', icon: '🗂',
+    counter: openTodos, tone: null },
+  { id: 'week', text: 'Woche', short: 'Woche', icon: '📅',
+    counter: () => overdueTodos().filter(isTask), tone: 'alert' },
+  { id: 'stats', text: 'Bilanz', short: 'Bilanz', icon: '📊',
+    counter: null, tone: null },
+  { id: 'settings', text: 'Einstellungen', short: 'Mehr', icon: '⚙️',
+    counter: null, tone: null },
+];
+
+const VIEWS = {
+  start: viewStart, lists: viewLists, week: viewWeek,
+  stats: viewStats, settings: viewSettings,
+};
+
+function renderTabs() {
+  const nav = document.getElementById('tabs');
+  nav.textContent = '';
+  for (const tab of TABS) {
+    const count = tab.counter ? tab.counter().length : 0;
+    nav.append(el('button', {
+      role: 'tab',
+      'aria-selected': String(state.tab === tab.id),
+      'aria-label': tab.text + (count ? ` (${count})` : ''),
+      onclick: () => {
+        state.tab = tab.id;
+        state.focus = null;
+        render();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+    }, [
+      // Welche der beiden Beschriftungen sichtbar ist, entscheidet das CSS.
+      el('span', { class: 'tab-icon', 'aria-hidden': 'true', text: tab.icon }),
+      el('span', { class: 'tab-text', text: tab.text }),
+      el('span', { class: 'tab-label', text: tab.short }),
+      count ? el('span', {
+        class: 'count' + (tab.tone ? ' ' + tab.tone : ''), text: String(count),
+      }) : null,
+    ]));
+  }
+}
+
+function renderHorizons() {
+  const container = document.getElementById('horizons');
+  if (container.childElementCount) return;   // nur einmal aufbauen
+  for (const [key, label] of Object.entries(state.horizons)) {
+    container.append(el('button', {
+      type: 'button', 'aria-pressed': String(state.horizon === key), 'data-horizon': key,
+      text: label,
+      onclick: () => {
+        state.horizon = key;
+        for (const button of container.children) {
+          button.setAttribute('aria-pressed', String(button.dataset.horizon === key));
+        }
+      },
+    }));
+  }
+}
+
+function renderBadge() {
+  const badge = document.getElementById('engine-badge');
+  const engine = state.engineChain[0] || 'heuristic';
+  const names = {
+    anthropic: 'Claude', mistral: 'Mistral', openai: 'ChatGPT',
+    ollama: 'lokal', heuristic: 'Regeln',
+  };
+  const queued = readQueue().length;
+  badge.textContent = queued
+    ? `${queued} wartet · ${names[engine] || engine}`
+    : names[engine] || engine;
+  badge.className = 'engine-badge' + (engine === 'heuristic' || queued ? ' offline' : '');
+  badge.title = `Einordnung: ${state.engineChain.join(' → ')}`;
+}
+
+function render() {
+  renderTabs();
+  renderHorizons();
+  renderBadge();
+  const view = document.getElementById('view');
+  view.textContent = '';
+  view.append((VIEWS[state.tab] || viewStart)());
+}
+
+/* ---------- Eingabe ---------- */
+
+async function submitCapture(event) {
+  event.preventDefault();
+  if (state.busy) return;
+  const textarea = document.getElementById('capture-text');
+  const text = textarea.value.trim();
+  if (!text) return;
+
+  const button = document.getElementById('capture-submit');
+  const hint = document.getElementById('capture-hint');
+  state.busy = true;
+  button.disabled = true;
+  button.textContent = 'Sortiere…';
+  hint.innerHTML = '<span class="spin"></span> Wird eingeordnet…';
+
+  const payload = { text, horizon: state.horizon };
+  try {
+    const result = await api('/api/capture', 'POST', payload);
+    textarea.value = '';
+    const list = listById(result.todo.listId);
+    if (result.autoFiled) {
+      toast(`→ ${list ? list.emoji + ' ' + list.name : 'einsortiert'}, ${formatDue(result.todo.dueDate)}`);
+    } else {
+      state.tab = 'start';
+      state.focus = { kind: 'inbox' };
+      toast('Kurz bestätigen bitte.');
+    }
+    if (result.problems && result.problems.length) {
+      console.warn('Anbieter-Probleme:', result.problems);
+    }
+    await refresh();
+  } catch (error) {
+    // Kein Netz oder Server weg: lokal merken und später nachreichen.
+    enqueue(payload);
+    textarea.value = '';
+    toast('Offline gemerkt — wird nachgereicht.', true);
+    renderBadge();
+  } finally {
+    state.busy = false;
+    button.disabled = false;
+    button.textContent = 'Rein damit';
+    hint.textContent = 'Wird automatisch einsortiert.';
+    if (isTouch) {
+      // Tastatur schließen und Eingabe zuklappen, sonst verdeckt beides
+      // die Rückmeldung und die Liste darunter.
+      textarea.blur();
+      collapseCapture();
+    } else {
+      textarea.focus();
+    }
+  }
+}
+
+/* ---------- Eingabe am Telefon auf- und zuklappen ----------
+   Ausgeklappt nimmt der Eingabebereich ein Drittel des Bildschirms ein.
+   Zusammengeklappt bleibt eine Zeile stehen, und die Listen bekommen den
+   Platz. Das Aufklappen passiert beim Antippen, das Zuklappen, sobald das
+   Feld leer ist und niemand mehr darin arbeitet. */
+
+function setupCapture() {
+  const form = document.getElementById('capture-form');
+  const textarea = document.getElementById('capture-text');
+  if (!form || !textarea) return;
+
+  // Der lange Beispielsatz braucht am Telefon zwei Zeilen und passt damit
+  // nicht in die zugeklappte Eingabe.
+  if (window.matchMedia('(max-width: 640px)').matches) {
+    textarea.placeholder = 'Einfach reinwerfen …';
+  }
+
+  const open = () => form.classList.add('open');
+  const closeIfEmpty = () => {
+    if (!textarea.value.trim() && !form.contains(document.activeElement)) {
+      form.classList.remove('open');
+    }
+  };
+
+  textarea.addEventListener('focus', open);
+  form.addEventListener('click', open);
+  // Kurz warten: beim Tippen auf „Rein damit" wandert der Fokus erst dorthin.
+  textarea.addEventListener('blur', () => setTimeout(closeIfEmpty, 180));
+}
+
+function collapseCapture() {
+  document.getElementById('capture-form').classList.remove('open');
+}
+
+/* ---------- Knopf zum Einwerfen (nur am Telefon sichtbar) ---------- */
+
+function setupFab() {
+  const fab = document.getElementById('fab');
+  const capture = document.getElementById('capture-form');
+  if (!fab || !capture) return;
+
+  fab.addEventListener('click', () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const textarea = document.getElementById('capture-text');
+    // Erst nach dem Scrollen fokussieren, sonst springt die Seite.
+    setTimeout(() => textarea.focus(), 220);
+  });
+
+  // Solange das Eingabefeld selbst zu sehen ist, wird der Knopf nicht
+  // gebraucht - und er würde nur Formularfelder darunter verdecken.
+  if ('IntersectionObserver' in window) {
+    fab.hidden = true;
+    new IntersectionObserver(([entry]) => {
+      fab.hidden = entry.isIntersecting;
+    }, { threshold: 0.1 }).observe(capture);
+  }
+}
+
+/* ---------- Start ---------- */
+
+document.getElementById('capture-form').addEventListener('submit', submitCapture);
+
+document.getElementById('capture-text').addEventListener('keydown', event => {
+  // Enter sendet, Shift+Enter macht einen Zeilenumbruch.
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    document.getElementById('capture-form').requestSubmit();
+  }
+});
+
+window.addEventListener('online', flushQueue);
+
+(async function start() {
+  setupCapture();
+  setupFab();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => { /* egal */ });
+  }
+  try {
+    const session = await api('/api/session');
+    if (session.authEnabled && !session.signedIn) {
+      showLogin();
+      return;
+    }
+  } catch {
+    // Kein Netz: mit dem weitermachen, was zwischengespeichert ist.
+  }
+  try {
+    await refresh();
+    await flushQueue();
+    state.tab = 'start';
+    render();
+  } catch (error) {
+    document.getElementById('view').append(el('div', { class: 'empty' }, [
+      el('strong', { text: 'Server nicht erreichbar' }),
+      'Läuft der Server noch?',
+    ]));
+  }
+})();
