@@ -21,8 +21,13 @@ SESSION_DAYS = 90
 
 # Anmeldeversuche je Absender bremsen, damit das Passwort nicht durchprobiert
 # werden kann. Im Speicher gehalten - reicht für eine Instanz.
-MAX_ATTEMPTS = 10
-WINDOW_SECONDS = 900
+#
+# Bewusst grosszuegig: Ein geteiltes Familienpasswort tippt man auch mal
+# daneben, und alle im selben Haushalt teilen sich nach aussen eine IP-Adresse.
+# Zehn Minuten Aussperrung nach einem Vertipper waere unbrauchbar; gegen das
+# maschinelle Durchprobieren langer Passwoerter reichen diese Werte allemal.
+MAX_ATTEMPTS = 20
+WINDOW_SECONDS = 300
 
 _attempts: dict[str, list[float]] = {}
 _attempts_lock = threading.Lock()
@@ -59,10 +64,24 @@ def _now() -> float:
 
 
 def too_many_attempts(origin: str) -> bool:
+    return seconds_until_retry(origin) > 0
+
+
+def seconds_until_retry(origin: str) -> int:
+    """Wie lange noch gesperrt? 0 heißt: Versuch ist erlaubt."""
     with _attempts_lock:
         recent = [t for t in _attempts.get(origin, []) if _now() - t < WINDOW_SECONDS]
         _attempts[origin] = recent
-        return len(recent) >= MAX_ATTEMPTS
+        if len(recent) < MAX_ATTEMPTS:
+            return 0
+        # Sobald der älteste Versuch aus dem Fenster fällt, geht es weiter.
+        return max(1, int(WINDOW_SECONDS - (_now() - min(recent))))
+
+
+def attempts_left(origin: str) -> int:
+    with _attempts_lock:
+        recent = [t for t in _attempts.get(origin, []) if _now() - t < WINDOW_SECONDS]
+        return max(0, MAX_ATTEMPTS - len(recent))
 
 
 def note_attempt(origin: str) -> None:
@@ -73,6 +92,18 @@ def note_attempt(origin: str) -> None:
 def clear_attempts(origin: str) -> None:
     with _attempts_lock:
         _attempts.pop(origin, None)
+
+
+def clear_all_attempts() -> int:
+    """Alle Sperren aufheben - fuer den Fall, dass sich jemand ausgesperrt hat.
+
+    Darf nur von einem Angemeldeten ausgeloest werden: Wer drin ist, kennt das
+    Passwort ohnehin, also entsteht dadurch keine zusaetzliche Angriffsflaeche.
+    """
+    with _attempts_lock:
+        anzahl = len(_attempts)
+        _attempts.clear()
+        return anzahl
 
 
 # --- Sitzungen ----------------------------------------------------------

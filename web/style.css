@@ -212,7 +212,9 @@ nav.tabs button[aria-selected="true"] {
   flex: none;
   width: 44px;
   height: 44px;
-  margin: -10px 0 0 -10px;   /* Trefferfläche vergrößern, Optik bleibt gleich */
+  /* Die Trefferfläche ragt oben UND unten über die Textzeile hinaus, damit
+     das Kästchen mittig auf der ersten Zeile sitzt statt darüber zu schweben. */
+  margin: -11px 0 -11px -10px;
   border: none;
   background: none;
   padding: 0;
@@ -563,7 +565,7 @@ a.btn { text-decoration: none; display: inline-block; }
   .todo > .btn-ghost {
     min-width: 44px;
     min-height: 44px;
-    margin: -10px -8px 0 0;
+    margin: -11px -8px -11px 0;
     font-size: 19px;
   }
 
@@ -1150,3 +1152,18 @@ a.btn { text-decoration: none; display: inline-block; }
 .me-picker { margin-bottom: 16px; }
 .login-who { margin-bottom: 10px; }
 .login-who select { text-align: center; }
+
+/* Was erst später fällig ist */
+.later-block { margin: 2px 0 10px; }
+.later-toggle {
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 2px;
+  min-height: 36px;
+  -webkit-tap-highlight-color: transparent;
+}
+.later-toggle:hover { color: var(--accent); }
+.later-items { margin-top: 4px; opacity: .8; }

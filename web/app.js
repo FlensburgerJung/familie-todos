@@ -358,6 +358,36 @@ const repeatingTodos = () => openTodos().filter(t => t.repeat);
 const kindTodos = kind => openTodos().filter(t => listKind(t.listId) === kind);
 const personTodos = id => openTodos().filter(t => isTask(t) && t.assigneeId === id);
 
+/* Was heute dran ist, von dem trennen, was erst kommt.
+
+   Beim Abhaken einer taeglichen Aufgabe entsteht sofort der Eintrag fuer
+   morgen - stuende der gleich wieder oben, haette man das Gefuehl, nichts
+   geschafft zu haben. Kuenftiges wandert deshalb hinter eine Klappe. */
+function splitByDue(todos) {
+  const faellig = [], spaeter = [];
+  for (const todo of todos) {
+    const tage = daysUntil(todo.dueDate);
+    (tage !== null && tage > 0 ? spaeter : faellig).push(todo);
+  }
+  return { faellig, spaeter };
+}
+
+/* Zusammenklappbarer Block fuer das, was noch nicht dran ist. */
+function laterBlock(todos, render) {
+  if (!todos.length) return null;
+  const inhalt = el('div', { class: 'later-items', hidden: true },
+    todos.map(render));
+  const knopf = el('button', {
+    class: 'later-toggle', type: 'button',
+    onclick: () => {
+      inhalt.hidden = !inhalt.hidden;
+      knopf.textContent = (inhalt.hidden ? '▸ ' : '▾ ')
+        + `${todos.length} später fällig`;
+    },
+  }, `▸ ${todos.length} später fällig`);
+  return el('div', { class: 'later-block' }, [knopf, inhalt]);
+}
+
 function sumMinutes(todos) {
   return todos.reduce((total, t) => total + (Number(t.minutes) || 0), 0);
 }
@@ -677,12 +707,15 @@ function viewLists() {
                              appointments: 'Termine' }[list.kind] || 'Weiteres' })));
     }
     letzteArt = list.kind;
+    const zeichne = t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 });
+    const { faellig, spaeter } = splitByDue(listItems);
     groups.append(el('section', { class: 'list-group' }, [
       el('div', { class: 'list-head' }, [
         `${list.emoji} ${list.name}`,
-        el('span', { class: 'count', text: String(listItems.length) }),
+        el('span', { class: 'count', text: String(faellig.length || listItems.length) }),
       ]),
-      ...listItems.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })),
+      ...faellig.map(zeichne),
+      laterBlock(spaeter, zeichne),
     ]));
   }
   const orphans = items.filter(t => !listById(t.listId));
@@ -938,15 +971,28 @@ function viewFocus() {
   if (parent) trail.push({ label: parent.name, go: () => openFocus('area', parent.id) });
   trail.push({ label: title.replace(/^\S+\s/, '') });
 
-  const body = todos.length
-    ? el('div', {}, kind === 'inbox'
-        ? todos.map(reviewCard)
-        : kind === 'recent'
-          ? todos.map(doneCard)
-          : todos.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })))
-    : el('div', { class: 'empty' }, [
-        el('strong', { text: 'Noch nichts hier' }),
-        kind === 'list' ? 'Trag oben direkt etwas ein.' : 'Diese Ansicht ist gerade leer.']);
+  let body;
+  if (!todos.length) {
+    body = el('div', { class: 'empty' }, [
+      el('strong', { text: 'Noch nichts hier' }),
+      kind === 'list' ? 'Trag oben direkt etwas ein.' : 'Diese Ansicht ist gerade leer.']);
+  } else if (kind === 'inbox') {
+    body = el('div', {}, todos.map(reviewCard));
+  } else if (kind === 'recent') {
+    body = el('div', {}, todos.map(doneCard));
+  } else if (kind === 'soon' || kind === 'today' || kind === 'overdue') {
+    // Diese Ansichten sind schon nach Datum gefiltert.
+    body = el('div', {}, todos.map(t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 })));
+  } else {
+    const zeichne = t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 });
+    const { faellig, spaeter } = splitByDue(todos);
+    body = el('div', {}, [
+      faellig.length
+        ? el('div', {}, faellig.map(zeichne))
+        : el('p', { class: 'hint', text: 'Heute nichts offen. 🎉' }),
+      laterBlock(spaeter, zeichne),
+    ]);
+  }
 
   return el('div', {}, [
     el('div', { class: 'focus-head' }, [
@@ -1645,9 +1691,22 @@ function viewSettings() {
     ]),
   ];
   if (deployment.authEnabled) {
+    betrieb.push(el('p', { class: 'hint', style: 'margin-top:14px',
+      text: 'Hat sich jemand zu oft vertippt und wird abgewiesen? Hier lässt '
+          + 'sich die Sperre sofort aufheben — du bist ja angemeldet.' }));
     betrieb.push(el('div', { class: 'row' }, [
       el('button', {
-        class: 'btn btn-sm', text: 'Von diesem Gerät abmelden',
+        class: 'btn btn-sm', text: '🔓 Anmeldesperren aufheben',
+        onclick: async () => {
+          try {
+            await api('/api/maintenance/unlock', 'POST', {});
+            toast('Sperren aufgehoben. Jetzt geht es wieder.');
+          } catch (error) { toast(error.message, true); }
+        },
+      }),
+      el('span', { style: 'flex:1' }),
+      el('button', {
+        class: 'btn btn-ghost btn-sm', text: 'Von diesem Gerät abmelden',
         onclick: async () => {
           await api('/api/logout', 'POST', {});
           location.reload();

@@ -370,6 +370,8 @@ ROUTES: list[tuple[str, str, object]] = [
      lambda m, p: (db.delete_person(m.group(1)), {"ok": True})[1]),
     ("PUT", r"^/api/settings$",
      lambda m, p: (db.set_settings(p), config.write_secrets(p), _state())[2]),
+    ("POST", r"^/api/maintenance/unlock$",
+     lambda m, p: {"cleared": auth.clear_all_attempts()}),
     ("POST", r"^/api/maintenance/purge$",
      lambda m, p: {"removed": db.purge_done(int(p.get("days", 30)))}),
     ("POST", r"^/api/import$", lambda m, p: _import(p)),
@@ -489,13 +491,20 @@ def _handle(request: Request) -> Response:
                               "signedIn": auth.is_signed_in(request.cookie)})
 
     if path == "/api/login" and request.method == "POST":
-        if auth.too_many_attempts(request.origin):
-            raise ApiError("Zu viele Versuche. Bitte in 15 Minuten erneut probieren.", 429)
+        wartezeit = auth.seconds_until_retry(request.origin)
+        if wartezeit > 0:
+            minuten = max(1, round(wartezeit / 60))
+            raise ApiError(
+                f"Zu viele Fehlversuche. Bitte in {minuten} "
+                f"{'Minute' if minuten == 1 else 'Minuten'} noch einmal probieren.", 429)
         payload = request.body()
         token = auth.login(payload.get("password", ""), request.origin,
                            request.environ.get("HTTP_USER_AGENT", "")[:80])
         if not token:
-            raise ApiError("Passwort stimmt nicht.", 401)
+            uebrig = auth.attempts_left(request.origin)
+            # Erst kurz vor der Sperre darauf hinweisen - vorher verunsichert es nur.
+            hinweis = (f" Noch {uebrig} Versuche." if uebrig <= 5 else "")
+            raise ApiError("Passwort stimmt nicht." + hinweis, 401)
         return json_response({"ok": True},
                              headers=[("Set-Cookie", auth.cookie_header(token, request.secure))])
 
@@ -572,7 +581,19 @@ def application(environ, start_response):
         ("Cache-Control", "no-store"),
         ("X-Content-Type-Options", "nosniff"),
         ("Referrer-Policy", "same-origin"),
+        # Verhindert, dass die Seite in eine fremde Seite eingebettet wird -
+        # sonst koennte dort ein unsichtbarer Rahmen Klicks abfangen.
+        ("X-Frame-Options", "DENY"),
+        # Alles kommt vom eigenen Server; nichts wird von aussen nachgeladen.
+        ("Content-Security-Policy",
+         "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+         "script-src 'self'; connect-src 'self'; frame-ancestors 'none'; "
+         "base-uri 'none'; form-action 'self'"),
     ]
+    if request.secure:
+        # Der Browser merkt sich, diese Adresse nur noch verschluesselt zu
+        # oeffnen - schuetzt vor dem Abfangen im fremden WLAN.
+        headers.append(("Strict-Transport-Security", "max-age=15552000"))
     headers.extend(response.headers)
     start_response(STATUS_TEXT.get(response.status, f"{response.status} Status"), headers)
     if request.method == "HEAD":
