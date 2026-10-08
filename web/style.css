@@ -374,6 +374,11 @@ input:focus, select:focus, textarea:focus {
 
 .section { margin-bottom: 26px; }
 .section h2 { font-size: 16px; margin: 0 0 10px; }
+/* Hinweise sind überall Beiwerk, nicht nur innerhalb einer Sektion.
+   Ohne diese Grundregel stehen sie in voller Textgröße und voller
+   Schwärze da - und wirken wichtiger als die Zahlen, auf die sie sich
+   beziehen. Die Regeln darunter ergänzen nur noch die Abstände. */
+p.hint { font-size: 13px; color: var(--muted); }
 .section p.hint { font-size: 13px; color: var(--muted); margin: -4px 0 10px; }
 
 .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }

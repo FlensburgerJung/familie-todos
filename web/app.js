@@ -1611,7 +1611,12 @@ function viewWeek() {
    Zwei Maße, die nicht vermischt werden dürfen: Anzahl der Aufgaben und
    aufgewendete Zeit. Beide auf eine Achse zu legen wäre irreführend - wer
    zehn Fünf-Minuten-Sachen erledigt, hat nicht so viel getan wie jemand mit
-   zwei Stunden Großputz. Deshalb ein Umschalter statt zweier Skalen. */
+   zwei Stunden Großputz. Deshalb ein Umschalter statt zweier Skalen.
+
+   Gezählt wird nur, was Arbeit ist (isTask). Ein Einkaufszettel besteht aus
+   Posten, nicht aus Aufgaben: Wer Milch, Brot und Butter abhakt, hätte sonst
+   drei „erledigte Aufgaben" - und ein Wochenendeinkauf schlüge jeden
+   Großputz. Dasselbe gilt für Wünsche, Merkzettel und Ideensammlungen. */
 
 function withinRange(isoTimestamp, days) {
   if (!days) return true;
@@ -1675,8 +1680,8 @@ function viewStats() {
   };
 
   const done = state.todos.filter(
-    t => t.status === 'done' && withinRange(t.doneAt, state.statsRange));
-  const open = state.todos.filter(t => t.status !== 'done');
+    t => t.status === 'done' && isTask(t) && withinRange(t.doneAt, state.statsRange));
+  const open = state.todos.filter(t => t.status !== 'done' && isTask(t));
 
   const totalMinutes = done.reduce((sum, t) => sum + (Number(t.minutes) || 0), 0);
   const withTime = done.filter(t => t.minutes > 0).length;
@@ -1718,6 +1723,18 @@ function viewStats() {
       class: 'hint',
       text: `${done.length - withTime} erledigte Aufgaben haben keine Zeitangabe und `
           + 'zählen nur bei der Anzahl mit.',
+    }));
+  }
+
+  /* Welche Bereiche draußen bleiben, steht da - sonst sucht man den Einkauf
+     in der Bilanz und hält die Zahlen für kaputt. Die Liste kommt aus den
+     Bereichen selbst, damit sie auch für eigene Bereiche stimmt. */
+  const sammlungen = (state.areas || []).filter(a => !a.dated);
+  if (sammlungen.length) {
+    view.append(el('p', {
+      class: 'hint',
+      text: 'Nicht gezählt: ' + sammlungen.map(a => a.name).join(', ')
+          + ' — das sind Sammlungen, keine Aufgaben.',
     }));
   }
 
