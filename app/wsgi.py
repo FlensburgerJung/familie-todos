@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import traceback
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -350,8 +351,14 @@ def _handle(request: Request) -> Response:
     path = request.path
 
     # --- ohne Anmeldung erreichbar ---
+    # Bewusst ohne Datenbankzugriff: Der Hoster erkennt am offenen Port, dass
+    # der Dienst lebt. Haengt diese Antwort an der Datenbank, gilt der Start
+    # als gescheitert, sobald die Datenbank langsam ist.
     if path == "/api/health":
         return json_response({"ok": True, "backend": store.backend()})
+
+    # Alles Weitere braucht die Tabellen.
+    ensure_booted()
 
     if path == "/api/session" and request.method == "GET":
         return json_response({"authEnabled": auth.enabled(),
@@ -449,11 +456,24 @@ def application(environ, start_response):
     return [response.body]
 
 
-def boot() -> None:
-    """Vor dem ersten Request: Schema anlegen, Fehlkonfiguration abfangen."""
-    auth.check_startup()
-    db.init()
-    db.purge_sessions()
+# Die Konfiguration wird sofort geprüft - das braucht kein Netz und soll den
+# Start verweigern, bevor eine ungeschützte App online geht.
+auth.check_startup()
+
+# Die Datenbank dagegen erst beim ersten Zugriff. Beim Import darauf zu warten
+# hieße: Faehrt die Datenbank gerade hoch, oeffnet der Server nie seinen Port,
+# und der Hoster bricht den Start ab ("No open ports detected").
+_booted = False
+_boot_lock = threading.Lock()
 
 
-boot()
+def ensure_booted() -> None:
+    global _booted
+    if _booted:
+        return
+    with _boot_lock:
+        if _booted:
+            return
+        db.init()
+        db.purge_sessions()
+        _booted = True

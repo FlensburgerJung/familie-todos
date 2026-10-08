@@ -8,7 +8,11 @@ services:
     plan: free              # für Dauerbetrieb ohne Einschlafen: starter
     region: frankfurt
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    # Ein Prozess mit mehreren Threads statt zweier Prozesse: spart Arbeits-
+    # speicher auf kleinen Instanzen, und eine langsame Modellantwort blockiert
+    # trotzdem nicht die uebrigen Anfragen.
+    startCommand: gunicorn app.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
+    autoDeployTrigger: commit
     healthCheckPath: /api/health
     envVars:
       - key: APP_PASSWORD      # Familienpasswort - ohne startet die App nicht
