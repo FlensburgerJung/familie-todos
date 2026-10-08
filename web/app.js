@@ -428,20 +428,18 @@ function splitByDue(todos) {
   return { faellig, spaeter };
 }
 
-/* Zusammenklappbarer Block fuer das, was noch nicht dran ist. */
-function laterBlock(todos, render) {
+/* Was später dran ist, bleibt sichtbar - nur abgetrennt.
+
+   Weggeklappt gerät es aus dem Blick, und genau das will man nicht: Wer
+   gerade Luft hat, soll sehen, was sich vorziehen lässt. Eine gestrichelte
+   Linie macht trotzdem deutlich, was drängt und was Zeit hat. */
+function laterBlock(todos, zeichne) {
   if (!todos.length) return null;
-  const inhalt = el('div', { class: 'later-items', hidden: true },
-    todos.map(render));
-  const knopf = el('button', {
-    class: 'later-toggle', type: 'button',
-    onclick: () => {
-      inhalt.hidden = !inhalt.hidden;
-      knopf.textContent = (inhalt.hidden ? '▸ ' : '▾ ')
-        + `${todos.length} später fällig`;
-    },
-  }, `▸ ${todos.length} später fällig`);
-  return el('div', { class: 'later-block' }, [knopf, inhalt]);
+  return el('div', { class: 'later-block' }, [
+    el('div', { class: 'later-divider' },
+      el('span', { text: `später — ${todos.length} ${todos.length === 1 ? 'Eintrag' : 'Einträge'}` })),
+    el('div', { class: 'later-items' }, todos.map(zeichne)),
+  ]);
 }
 
 /* Notizen für heute. Ein PostIt mit Datum soll an seinem Tag auf der
@@ -1090,6 +1088,33 @@ function viewFocus() {
       ]);
     }
 
+    // Eine neue Liste gehört dorthin, wo man die Listen sieht - nicht in die
+    // Einstellungen.
+    const neueListe = el('input', {
+      type: 'text', placeholder: `Neue Liste in ${area.name} …`,
+    });
+    const neueEmoji = el('input', { type: 'text', placeholder: '📋', maxlength: '4',
+                                    class: 'quick-emoji' });
+    const anlegen = el('form', {
+      class: 'quick-add', onsubmit: async (event) => {
+        event.preventDefault();
+        const name = neueListe.value.trim();
+        if (!name) return;
+        try {
+          await api('/api/lists', 'POST', {
+            name, emoji: neueEmoji.value.trim() || '📋', kind: area.id,
+          });
+          neueListe.value = ''; neueEmoji.value = '';
+          toast('Liste angelegt.');
+          await refresh();
+        } catch (error) { toast(error.message, true); }
+      },
+    }, [
+      neueEmoji,
+      neueListe,
+      el('button', { class: 'btn btn-primary btn-sm', type: 'submit', text: '+' }),
+    ]);
+
     return el('div', {}, [
       el('div', { class: 'focus-head' }, [
         crumbs,
@@ -1108,6 +1133,7 @@ function viewFocus() {
             text: count.length ? String(count.length) : 'leer' }),
         ]);
       })),
+      el('div', { class: 'add-list' }, anlegen),
     ]);
   }
 

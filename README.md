@@ -269,6 +269,10 @@ Listen. Mitgeliefert werden:
 | **🎁 Wunschzettel** | je Person | nein |
 | **🎬 Merken** | Bücher, Filme, Podcasts | nein |
 
+**Eigene Listen** legst du direkt im Bereich an: Kachel antippen, unten steht
+ein Feld mit `+`. Eine Liste „🔧 Reparaturen" in den Todos ist in zehn Sekunden
+gemacht. (Auch möglich unter *Mehr → Listen*, dort mit mehr Einstellungen.)
+
 **Eigene Bereiche** legst du unter *Mehr → Bereiche* an — mit Name, Emoji und
 der Angabe, ob darin Termine und Dauer geführt werden. Danach dort Listen
 anlegen. Löschst du einen Bereich, wandern seine Listen zu den Todos; nichts
@@ -318,6 +322,13 @@ erkannt und eine Liste „Bücher, Filme & Podcasts" angelegt.
 
 Wann etwas automatisch einsortiert wird statt in der Inbox zu landen, steuert die
 Schwelle in den Einstellungen (Standard: 70 % Sicherheit).
+
+### Was später dran ist
+
+In jeder Liste trennt eine gestrichelte Linie, was in den nächsten sieben Tagen
+ansteht, von dem, was länger hin ist. Beides bleibt sichtbar — wer gerade Luft
+hat, soll sehen, was sich vorziehen lässt. Nur die Folgetermine wiederkehrender
+Aufgaben stehen unterhalb der Linie, bis sie dran sind.
 
 ## Kalender
 

@@ -1183,20 +1183,24 @@ a.btn { text-decoration: none; display: inline-block; }
 .login-who { margin-bottom: 10px; }
 .login-who select { text-align: center; }
 
-/* Was erst später fällig ist */
-.later-block { margin: 2px 0 10px; }
-.later-toggle {
-  border: none;
-  background: none;
+/* Was erst später fällig ist - sichtbar, aber abgesetzt */
+.later-block { margin: 6px 0 10px; }
+.later-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 2px 10px;
   color: var(--muted);
-  font: inherit;
-  font-size: 13px;
-  padding: 7px 2px;
-  min-height: 36px;
-  -webkit-tap-highlight-color: transparent;
+  font-size: 12px;
+  letter-spacing: .04em;
 }
-.later-toggle:hover { color: var(--accent); }
-.later-items { margin-top: 4px; opacity: .8; }
+.later-divider::before, .later-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--border);
+}
+.later-items > .card { opacity: .78; }
+.later-items > .card:hover { opacity: 1; }
 
 /* Umschalter fürs Farbschema */
 .theme-toggle {
@@ -1313,3 +1317,8 @@ h1 > #home-link:hover { color: var(--accent); }
   vertical-align: 1px;
 }
 .todo-note.from-model { font-style: italic; }
+
+/* Liste direkt im Bereich anlegen */
+.add-list { margin-top: 14px; }
+.add-list .quick-add { margin-bottom: 0; }
+.quick-emoji { flex: 0 0 auto; width: 56px; text-align: center; }
