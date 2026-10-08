@@ -85,19 +85,63 @@ function toast(message, isError = false) {
   node._timer = setTimeout(() => { node.className = ''; }, isError ? 6000 : 3500);
 }
 
+/* Schlafende Server geduldig wecken.
+
+   Auf günstigen Tarifen fährt der Dienst nach einer Viertelstunde Ruhe
+   herunter; der erste Aufruf danach braucht bis zu einer Minute. Ohne
+   Wiederholung sieht die Familie dann eine Fehlermeldung statt ihrer Listen. */
+const WAKE_ATTEMPTS = 6;
+const WAKE_PAUSE_MS = 2500;
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function apiWithPatience(path, onWaiting, method, body) {
+  let lastError;
+  for (let attempt = 1; attempt <= WAKE_ATTEMPTS; attempt++) {
+    try {
+      return await api(path, method, body);
+    } catch (error) {
+      lastError = error;
+      // Eine abgelehnte Anmeldung wiederholt sich nicht von selbst.
+      if (error.status === 401) throw error;
+      if (attempt < WAKE_ATTEMPTS) {
+        if (onWaiting) onWaiting(attempt);
+        await sleep(WAKE_PAUSE_MS);
+      }
+    }
+  }
+  throw lastError;
+}
+
 async function api(path, method = 'GET', body) {
-  const response = await fetch(path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  // Ohne Zeitgrenze hängt der Aufruf minutenlang, statt es neu zu versuchen.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const data = await response.json().catch(() => ({}));
   if (response.status === 401 && path !== '/api/login') {
     // Sitzung abgelaufen oder von anderswo beendet.
-    showLogin('Die Anmeldung ist abgelaufen.');
-    throw new Error('Nicht angemeldet');
+    const unauthorized = new Error('Nicht angemeldet');
+    unauthorized.status = 401;
+    throw unauthorized;
   }
-  if (!response.ok) throw new Error(data.error || `Fehler ${response.status}`);
+  if (!response.ok) {
+    const failure = new Error(data.error || `Fehler ${response.status}`);
+    failure.status = response.status;
+    throw failure;
+  }
   return data;
 }
 
@@ -1375,7 +1419,10 @@ async function submitCapture(event) {
 
   const payload = { text, horizon: state.horizon };
   try {
-    const result = await api('/api/capture', 'POST', payload);
+    const result = await apiWithPatience('/api/capture', attempt => {
+      hint.innerHTML = '<span class="spin"></span> Server wacht auf, '
+                     + `Versuch ${attempt + 1} …`;
+    }, 'POST', payload);
     textarea.value = '';
     const list = listById(result.todo.listId);
     if (result.autoFiled) {
@@ -1390,6 +1437,7 @@ async function submitCapture(event) {
     }
     await refresh();
   } catch (error) {
+    if (error.status === 401) { showLogin(); return; }
     // Kein Netz oder Server weg: lokal merken und später nachreichen.
     enqueue(payload);
     textarea.value = '';
@@ -1483,30 +1531,55 @@ document.getElementById('capture-text').addEventListener('keydown', event => {
 
 window.addEventListener('online', flushQueue);
 
+function showWaking(attempt) {
+  const view = document.getElementById('view');
+  if (!view) return;
+  view.textContent = '';
+  view.append(el('div', { class: 'empty' }, [
+    el('strong', {}, [el('span', { class: 'spin' }), ' Server wacht auf']),
+    attempt > 1
+      ? `Der Dienst war eingeschlafen. Noch einen Moment … (${attempt}. Versuch)`
+      : 'Einen Moment bitte.',
+  ]));
+}
+
 (async function start() {
   setupCapture();
   setupFab();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(() => { /* egal */ });
   }
+
   try {
-    const session = await api('/api/session');
+    const session = await apiWithPatience('/api/session', showWaking);
     if (session.authEnabled && !session.signedIn) {
       showLogin();
       return;
     }
-  } catch {
-    // Kein Netz: mit dem weitermachen, was zwischengespeichert ist.
+  } catch (error) {
+    if (error.status === 401) { showLogin(); return; }
+    // Ohne Netz weiter: Eingeworfenes wird lokal gemerkt und nachgereicht.
   }
+
   try {
-    await refresh();
+    const data = await apiWithPatience('/api/state', showWaking);
+    Object.assign(state, data);
     await flushQueue();
     state.tab = 'start';
     render();
   } catch (error) {
-    document.getElementById('view').append(el('div', { class: 'empty' }, [
-      el('strong', { text: 'Server nicht erreichbar' }),
-      'Läuft der Server noch?',
-    ]));
+    if (error.status === 401) { showLogin(); return; }
+    const view = document.getElementById('view');
+    if (view) {
+      view.textContent = '';
+      view.append(el('div', { class: 'empty' }, [
+        el('strong', { text: 'Keine Verbindung' }),
+        'Die Listen konnten nicht geladen werden. ',
+        el('button', {
+          class: 'btn btn-sm', text: 'Nochmal versuchen', style: 'margin-top:12px',
+          onclick: () => location.reload(),
+        }),
+      ]));
+    }
   }
 })();
