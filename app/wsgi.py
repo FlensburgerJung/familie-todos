@@ -201,10 +201,11 @@ def _create_todo(payload: dict) -> dict:
     horizon = payload.get("horizon") if payload.get("horizon") in HORIZONS else DEFAULT_HORIZON
     dated = db.area_is_dated((target or {}).get("kind", "tasks"))
 
-    due = None
-    if dated:
-        due = (clamp_due_date(payload.get("dueDate"), horizon)
-               if payload.get("dueDate") else None)
+    # Ein Datum wird uebernommen, wenn es ausdruecklich mitkommt - auch in
+    # einer Sammlung. Ein Merkzettel "Donnerstag Turnbeutel" ist kein Termin
+    # mit Frist, hat aber einen Tag, an dem er auftauchen soll.
+    due = (clamp_due_date(payload.get("dueDate"), horizon)
+           if payload.get("dueDate") else None)
 
     return {"todo": db.create_todo({
         "title": title[:120],

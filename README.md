@@ -265,6 +265,7 @@ Listen. Mitgeliefert werden:
 | **🛒 Einkauf** | Täglicher Bedarf, Baumarkt, Elektro, je Person | nein |
 | **📅 Termine** | zu vereinbaren und was feststeht | ja |
 | **🎡 Unternehmungen** | Ausflüge, Essen gehen, Kultur | nein |
+| **📌 PostIt** | Notizen und Merkzettel | nur ein Tag |
 | **🎁 Wunschzettel** | je Person | nein |
 | **🎬 Merken** | Bücher, Filme, Podcasts | nein |
 
@@ -277,6 +278,16 @@ Bereiche ohne Termine sind **Sammlungen**: Ihre Einträge haben keine Frist und
 keine Dauer, erscheinen nicht unter „überfällig", nicht im Tab „Listen", nicht
 bei „frei zu vergeben" und nicht im Kalender. Ein Buchtipp oder „mal an die
 Ostsee fahren" soll einen schließlich nicht als überfällig anmahnen.
+
+### Notizzettel
+
+Der Bereich **📌 PostIt** ist für alles, was man sich kurz merken will. Eine
+Notiz kann einen **Tag** bekommen — dann erscheint sie an diesem Tag ganz oben
+auf der Startseite als gelber Zettel und bleibt dort, bis sie abgehakt wird.
+Ohne Tag liegt sie einfach in der Kachel.
+
+Notizen sind keine Aufgaben: keine Dauer, keine Wiederholung, nie „überfällig",
+nicht im Kalender.
 
 ### Empfehlungen für jemanden
 

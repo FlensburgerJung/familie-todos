@@ -166,12 +166,16 @@ SEED_AREAS = [
     ("shopping", "Einkauf", "🛒", "Täglicher Bedarf, Baumarkt, persönlich …", 0),
     ("appointments", "Termine", "📅", "Zu vereinbaren und was feststeht", 1),
     ("activities", "Unternehmungen", "🎡", "Ausflüge, Essen gehen, Kultur", 0),
+    ("postits", "PostIt", "📌", "Notizen und Merkzettel", 0),
     ("wishes", "Wunschzettel", "🎁", "Geschenkideen je Person", 0),
     ("media", "Merken", "🎬", "Bücher, Filme, Podcasts", 0),
 ]
 
 # Listen, die beim ersten Mal in einem neuen Bereich entstehen
 SEED_AREA_LISTS = {
+    "postits": [
+        ("notizen", "Notizen", "📌", "Was man sich kurz merken will"),
+    ],
     "activities": [
         ("ausfluege", "Ausflüge & Reisen", "🧭", "Ostsee, Wochenenden, Tagestouren"),
         ("essen-gehen", "Essen gehen", "🍽", "Restaurants, die wir mal ausprobieren wollen"),

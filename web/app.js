@@ -444,6 +444,19 @@ function laterBlock(todos, render) {
   return el('div', { class: 'later-block' }, [knopf, inhalt]);
 }
 
+/* Notizen für heute. Ein PostIt mit Datum soll an seinem Tag auf der
+   Startseite auftauchen - nicht vorher und, wenn es liegen bleibt, auch
+   danach noch. Ohne Datum bleibt es nur in seiner Kachel. */
+const POSTIT_AREA = 'postits';
+
+function todayNotes() {
+  return openTodos().filter(todo => {
+    if (listKind(todo.listId) !== POSTIT_AREA) return false;
+    const tage = daysUntil(todo.dueDate);
+    return tage !== null && tage <= 0;
+  });
+}
+
 function sumMinutes(todos) {
   return todos.reduce((total, t) => total + (Number(t.minutes) || 0), 0);
 }
@@ -650,6 +663,7 @@ function reviewCard(todo) {
   confirmBtn.addEventListener('click', async () => {
     confirmBtn.disabled = true;
     const payload = { title: titleInput.value, assigneeId: personSelect.value };
+    if (!dated && targetKind === 'postits') payload.dueDate = dueInput.value;
     if (dated) {
       payload.dueDate = dueInput.value;
       payload.priority = prioSelect.value;
@@ -694,7 +708,10 @@ function reviewCard(todo) {
       newListWrap,
       el('label', { class: 'field' }, [
         el('span', { text: dated ? 'Wer' : 'Für wen' }), personSelect]),
-      dated ? el('label', { class: 'field' }, [el('span', { text: 'Fällig' }), dueInput]) : null,
+      (dated || targetKind === 'postits')
+        ? el('label', { class: 'field' }, [
+            el('span', { text: dated ? 'Fällig' : 'Für welchen Tag' }), dueInput])
+        : null,
       dated ? el('label', { class: 'field' }, [el('span', { text: 'Priorität' }), prioSelect]) : null,
       dated ? el('label', { class: 'field' }, [el('span', { text: 'Wiederholung' }), repeatSelect]) : null,
       dated ? el('label', { class: 'field' }, [el('span', { text: 'Dauer' }), effortSelect]) : null,
@@ -848,6 +865,24 @@ function rememberStep() {
   } catch { /* egal */ }
 }
 
+/* Der Titel oben links führt nach Hause - das erwartet man von einer
+   Kopfzeile, und es ist am Telefon der kürzeste Weg mit dem Daumen. */
+function setupHomeLink() {
+  const link = document.getElementById('home-link');
+  if (!link) return;
+  link.addEventListener('click', () => {
+    if (state.tab === 'start' && !state.focus) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    state.tab = 'start';
+    state.focus = null;
+    pushStep();
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+}
+
 function setupHistory() {
   rememberStep();
   window.addEventListener('popstate', event => {
@@ -898,10 +933,17 @@ function quickAdd(listId) {
   const bereich = list ? (state.areas || []).find(a => a.id === list.kind) : null;
   const dated = bereich ? bereich.dated : true;
 
+  const istNotiz = list && list.kind === POSTIT_AREA;
   const input = el('input', {
     type: 'text', id: 'quick-add-input', autocomplete: 'off',
-    placeholder: dated ? 'Direkt hinzufügen …' : 'Auf die Liste setzen …',
+    placeholder: istNotiz ? 'Notiz …'
+               : dated ? 'Direkt hinzufügen …' : 'Auf die Liste setzen …',
   });
+
+  // Nur bei Notizen: der Tag, an dem sie auf der Startseite erscheinen soll.
+  const dateInput = istNotiz
+    ? el('input', { type: 'date', class: 'quick-date', title: 'Für welchen Tag?' })
+    : null;
 
   const personSelect = state.people.length
     ? el('select', { class: 'quick-person' }, [
@@ -921,8 +963,10 @@ function quickAdd(listId) {
       await api('/api/todos', 'POST', {
         title, listId,
         assigneeId: personSelect ? personSelect.value : '',
+        dueDate: dateInput ? dateInput.value : '',
         horizon: state.horizon,
       });
+      if (dateInput) dateInput.value = '';
       input.value = '';
       await refresh();
       // Nach dem Neuzeichnen weitertippen können - beim Einkaufszettel
@@ -937,6 +981,7 @@ function quickAdd(listId) {
 
   return el('form', { class: 'quick-add', onsubmit: submit }, [
     input,
+    dateInput,
     personSelect,
     el('button', { class: 'btn btn-primary btn-sm', type: 'submit', text: '+' }),
   ]);
@@ -1154,7 +1199,42 @@ function viewStart() {
     ]),
   ]));
 
-  /* Die fünf Bereiche. */
+  /* Notizen, die heute dran sind - direkt unter dem, was drängt. */
+  const notizen = todayNotes();
+  if (notizen.length) {
+    view.append(el('section', { class: 'home-section' }, [
+      el('h2', { text: 'Notizen für heute' }),
+      el('div', { class: 'notes' }, notizen.map(note => {
+        const erledigen = el('button', {
+          class: 'note-done', type: 'button', title: 'Erledigt',
+          text: '✓',
+          onclick: async () => {
+            erledigen.disabled = true;
+            try {
+              await api(`/api/todos/${note.id}`, 'PATCH',
+                        { status: 'done', doneBy: state.me });
+              toast('Notiz abgehakt.', false, async () => {
+                await api(`/api/todos/${note.id}/restore`, 'POST', {});
+                await refresh();
+              });
+              await refresh();
+            } catch (error) { toast(error.message, true); erledigen.disabled = false; }
+          },
+        });
+        const person = personById(note.assigneeId);
+        return el('div', { class: 'note' }, [
+          el('div', { class: 'note-body' }, [
+            el('div', { class: 'note-text', text: note.title }),
+            el('div', { class: 'note-meta',
+              text: `${formatDue(note.dueDate)}${person ? ' · für ' + person.name : ''}` }),
+          ]),
+          erledigen,
+        ]);
+      })),
+    ]));
+  }
+
+  /* Die Bereiche. */
   view.append(el('section', { class: 'home-section' }, [
     el('div', { class: 'big-tiles' }, allAreas().map(area => {
       const todos = areaTodos(area.id);
@@ -2266,6 +2346,7 @@ function showWaking(attempt) {
 (async function start() {
   state.me = readMe();
   setupTheme();
+  setupHomeLink();
   setupHistory();
   setupCapture();
   setupFab();
