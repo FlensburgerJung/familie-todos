@@ -689,10 +689,36 @@ function todoCard(todo, { overdue = false } = {}) {
     onclick: () => { state.editing = todo.id; render(); },
   });
 
+  /* Auf dem Einkaufszettel ein Stern: „daran muss ich denken".
+
+     Ein Posten erinnert niemanden daran, auch hinzufahren - „Vitamin D"
+     steht beim Einkauf, der Weg zur Apotheke nirgends. Der Stern legt dafür
+     ein Todo an, eines je Zettel. */
+  const istEinkauf = listKind(todo.listId) === 'shopping';
+  const wichtig = todo.priority === 'high';
+  const stern = istEinkauf ? el('button', {
+    class: 'btn btn-ghost btn-sm star' + (wichtig ? ' an' : ''),
+    text: wichtig ? '★' : '☆',
+    title: wichtig
+      ? 'Nicht mehr merken — das Besorgungs-Todo fällt weg'
+      : 'Daran denken — legt ein Todo für den Gang an',
+    'aria-pressed': String(wichtig),
+    onclick: async () => {
+      stern.disabled = true;
+      stern.blur();
+      try {
+        await api(`/api/todos/${todo.id}`, 'PATCH',
+                  { priority: wichtig ? 'normal' : 'high' });
+        toast(wichtig ? 'Merker entfernt.' : 'Kommt als Todo dazu.');
+        await refresh();
+      } catch (error) { toast(error.message, true); stern.disabled = false; }
+    },
+  }) : null;
+
   // Bei Essensideen gibt es zusätzlich den Rezeptvorschlag.
   const istEssen = listKind(todo.listId) === 'meals';
   const karte = el('div', { class: 'card' + (overdue ? ' overdue' : '') },
-    el('div', { class: 'todo' }, [check, body, edit]));
+    el('div', { class: 'todo' }, [check, body, stern, edit]));
 
   if (istEssen) {
     const fach = el('div', { hidden: !todo.detail });

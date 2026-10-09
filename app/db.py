@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS todos (
     note_source   TEXT NOT NULL DEFAULT '',
     detail        TEXT NOT NULL DEFAULT '',
     client_id     TEXT NOT NULL DEFAULT '',
+    errand_for    TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
     done_at       TEXT
 );
@@ -151,6 +152,7 @@ LATER_COLUMNS = [
     ("todos", "note_source", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "detail", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "client_id", "TEXT NOT NULL DEFAULT ''"),
+    ("todos", "errand_for", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -586,6 +588,7 @@ def _todo_row(row: dict) -> dict:
         "noteSource": row.get("note_source") or "",
         "detail": row.get("detail") or "",
         "clientId": row.get("client_id") or "",
+        "errandFor": row.get("errand_for") or "",
     }
 
 
@@ -616,8 +619,8 @@ def create_todo(data: dict) -> dict:
         "INSERT INTO todos (id, title, raw_input, note, list_id, assignee_id, horizon,"
         " due_date, priority, status, confidence, question, tags, engine, suggestion,"
         " created_at, done_at, repeat_rule, minutes, created_from, note_source,"
-        " client_id)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " client_id, errand_for)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             todo_id,
             (data.get("title") or "").strip() or "Ohne Titel",
@@ -633,9 +636,19 @@ def create_todo(data: dict) -> dict:
             data.get("repeat", ""), int(data.get("minutes") or 0),
             data.get("createdFrom", ""), data.get("noteSource", ""),
             (data.get("clientId") or "")[:64],
+            (data.get("errandFor") or "")[:64],
         ),
     )
     return get_todo(todo_id)
+
+
+def errand_todo(list_id: str) -> dict | None:
+    """Das offene Besorgungs-Todo zu einem Einkaufszettel, falls es eins gibt."""
+    if not list_id:
+        return None
+    row = store.one("SELECT * FROM todos WHERE errand_for=? AND status <> 'done'"
+                    " ORDER BY created_at LIMIT 1", (list_id,))
+    return _todo_row(row) if row else None
 
 
 def todo_by_client_id(client_id: str) -> dict | None:

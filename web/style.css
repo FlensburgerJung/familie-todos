@@ -1178,6 +1178,11 @@ a.btn { text-decoration: none; display: inline-block; }
    der Umweg für den Fall, dass man gleich noch etwas vergeben will. */
 .quick-add .quick-more { font-size: 14px; min-width: 42px; color: var(--muted); }
 
+/* Stern auf Einkaufsposten: unmarkiert nur eine Andeutung, markiert deutlich.
+   Er steht neben dem Dreipunktmenü, nicht davor - gemerkt wird selten. */
+.star { font-size: 17px; line-height: 1; color: var(--muted); padding: 4px 6px; }
+.star.an { color: var(--warn); }
+
 @media (max-width: 640px) {
   .crumbs { font-size: 13.5px; gap: 5px; }
   .crumb { min-height: 34px; }

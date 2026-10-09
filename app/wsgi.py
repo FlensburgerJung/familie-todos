@@ -338,7 +338,83 @@ def _confirm(todo_id: str, payload: dict) -> dict:
         fields["dueDate"] = None
         fields["repeat"] = ""
 
-    return {"todo": db.update_todo(todo_id, fields)}
+    aktualisiert = db.update_todo(todo_id, fields)
+    # Priorität und Liste können sich hier beide geändert haben.
+    _sync_errand(todo.get("listId"))
+    if aktualisiert and aktualisiert.get("listId") != todo.get("listId"):
+        _sync_errand(aktualisiert.get("listId"))
+    return {"todo": aktualisiert}
+
+
+def _delete_todo(todo_id: str) -> dict:
+    todo = db.get_todo(todo_id)
+    db.delete_todo(todo_id)
+    if todo:
+        _sync_errand(todo.get("listId"))
+    return {"ok": True}
+
+
+def _sync_errand(list_id: str | None) -> None:
+    """Hält das Besorgungs-Todo zu einem Einkaufszettel auf Stand.
+
+    Ein Posten auf dem Einkaufszettel erinnert niemanden daran, auch
+    hinzufahren: „Vitamin D" steht beim Einkauf, aber der Weg zur Apotheke
+    steht nirgends. Wer einen Posten als wichtig markiert, bekommt deshalb
+    ein Todo für den Gang selbst.
+
+    Bewusst eines je Zettel, nicht je Posten - man fährt einmal zur
+    Apotheke, auch wenn drei Dinge draufstehen. Sind keine wichtigen Posten
+    mehr offen, verschwindet es wieder: Es war eine Erinnerung, keine
+    eigene Leistung, und soll keine erledigte Aufgabe vortäuschen.
+    """
+    if not list_id:
+        return
+    zettel = db.get_list(list_id)
+    if not zettel or zettel.get("kind") != "shopping":
+        return
+
+    wichtig = [t for t in db.get_todos(include_done=False)
+               if t["listId"] == list_id and t["priority"] == "high"]
+    vorhanden = db.errand_todo(list_id)
+
+    if not wichtig:
+        if vorhanden:
+            db.delete_todo(vorhanden["id"])
+        return
+
+    titel = f"{zettel['emoji']} {zettel['name']} besorgen"
+    notiz = ", ".join(t["title"] for t in wichtig)[:300]
+
+    if vorhanden:
+        db.update_todo(vorhanden["id"], {"title": titel, "note": notiz})
+        return
+
+    # Zielliste: die erste Aufgabenliste. Der Gang zur Apotheke ist eine
+    # Aufgabe, kein Posten - auf dem Einkaufszettel stünde er sinnlos.
+    aufgaben = [l for l in db.get_lists() if l.get("kind") == "tasks"]
+    db.create_todo({
+        "title": titel,
+        "rawInput": titel,
+        "note": notiz,
+        "noteSource": "auto",
+        "listId": aufgaben[0]["id"] if aufgaben else None,
+        "dueDate": clamp_due_date(None, DEFAULT_HORIZON),
+        "status": "open",
+        "confidence": 1.0,
+        "engine": "automatisch",
+        "errandFor": list_id,
+    })
+
+
+def _errand_done(todo: dict) -> None:
+    """Ist der Gang erledigt, sind die Markierungen ihren Zweck los.
+
+    Ohne das stünde das Besorgungs-Todo sofort wieder da: Die wichtigen
+    Posten sind ja noch offen, und der nächste Abgleich legte es neu an.
+    """
+    for posten in db.get_todos(include_done=False):
+        if posten["listId"] == todo.get("errandFor") and posten["priority"] == "high":
+            db.update_todo(posten["id"], {"priority": "normal"})
 
 
 def _repeat_next(todo: dict) -> dict | None:
@@ -405,6 +481,15 @@ def _patch_todo(todo_id: str, payload: dict) -> dict:
     follow_up = None
     if fields.get("status") == "done" and todo["status"] != "done":
         follow_up = _repeat_next(updated)
+        if updated.get("errandFor"):
+            _errand_done(updated)
+
+    # Beide Zettel abgleichen: Ein Posten kann von einem auf den anderen
+    # gewandert sein, dann braucht der eine kein Besorgungs-Todo mehr und
+    # der andere eins.
+    _sync_errand(todo.get("listId"))
+    if updated and updated.get("listId") != todo.get("listId"):
+        _sync_errand(updated.get("listId"))
     return {"todo": updated, "next": follow_up}
 
 
@@ -427,8 +512,7 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", r"^/api/todos/([\w-]+)/recipe$", lambda m, p: _recipe(m.group(1), p)),
     ("GET", r"^/api/recent$", lambda m, p: {"todos": db.recently_done(24)}),
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
-    ("DELETE", r"^/api/todos/([\w-]+)$",
-     lambda m, p: (db.delete_todo(m.group(1)), {"ok": True})[1]),
+    ("DELETE", r"^/api/todos/([\w-]+)$", lambda m, p: _delete_todo(m.group(1))),
     ("POST", r"^/api/areas$",
      lambda m, p: {"area": db.create_area(p.get("name", ""), p.get("emoji", "📂"),
                                           p.get("hint", ""), bool(p.get("dated")))}),
