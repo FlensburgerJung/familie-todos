@@ -21,3 +21,7 @@ services:
         sync: false
       - key: MISTRAL_API_KEY   # Schlüssel des gewählten Anbieters
         sync: false
+      - key: TELEGRAM_BOT_TOKEN      # optional: Einwerfen per Telegram
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET # Pflicht, sobald ein Token gesetzt ist
+        sync: false

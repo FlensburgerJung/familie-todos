@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS todos (
     done_by       TEXT NOT NULL DEFAULT '',
     note_source   TEXT NOT NULL DEFAULT '',
     detail        TEXT NOT NULL DEFAULT '',
+    client_id     TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
     done_at       TEXT
 );
@@ -79,6 +80,18 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     label      TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS telegram_chats (
+    chat_id    TEXT PRIMARY KEY,
+    area_id    TEXT NOT NULL DEFAULT '',
+    list_id    TEXT NOT NULL DEFAULT '',
+    title      TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS telegram_users (
+    tg_user_id TEXT PRIMARY KEY,
+    person_id  TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
 CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(due_date);
@@ -137,6 +150,7 @@ LATER_COLUMNS = [
     ("todos", "done_by", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "note_source", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "detail", "TEXT NOT NULL DEFAULT ''"),
+    ("todos", "client_id", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -149,9 +163,14 @@ def _migrate_columns() -> None:
             pass   # Spalte ist bereits vorhanden
 
 
-def _seed_lists() -> None:
-    """Startlisten - nur wenn die Datenbank noch gar keine Liste hat."""
-    if store.one("SELECT 1 AS x FROM lists LIMIT 1"):
+def _seed_lists(frisch: bool) -> None:
+    """Startlisten - nur in einer fabrikneuen Datenbank.
+
+    `frisch` wird in `init()` ermittelt, bevor irgendetwas eingefügt wurde.
+    Selbst nachzusehen ginge schief: `_seed_areas` legt vorher schon Listen
+    an, und dann hielte diese Funktion die Datenbank für gefüllt.
+    """
+    if not frisch:
         return
     store.execute_many([
         ("INSERT INTO lists (id, name, emoji, description, keywords, kind, sort, created_at)"
@@ -346,8 +365,11 @@ def _migrate_data() -> None:
 def init() -> None:
     store.script(SCHEMA)
     _migrate_columns()
+    # Ob die Datenbank fabrikneu ist, muss feststehen, bevor die erste Zeile
+    # geschrieben wird - danach ist die Frage nicht mehr zu beantworten.
+    frisch = not store.one("SELECT 1 AS x FROM lists LIMIT 1")
     _seed_areas()
-    _seed_lists()
+    _seed_lists(frisch)
     _migrate_data()
     store.execute_many([
         ('INSERT INTO settings ("key", "value") VALUES (?,?) ON CONFLICT ("key") DO NOTHING',
@@ -439,6 +461,50 @@ def delete_list(list_id: str) -> None:
     ])
 
 
+# --- Telegram: welcher Chat schreibt wohin ------------------------------
+
+def telegram_chat(chat_id: str) -> dict | None:
+    row = store.one("SELECT * FROM telegram_chats WHERE chat_id=?", (str(chat_id),))
+    if not row:
+        return None
+    return {"chatId": row["chat_id"], "areaId": row["area_id"] or "",
+            "listId": row["list_id"] or "", "title": row["title"] or ""}
+
+
+def telegram_chats() -> list[dict]:
+    return [{"chatId": r["chat_id"], "areaId": r["area_id"] or "",
+             "listId": r["list_id"] or "", "title": r["title"] or ""}
+            for r in store.query("SELECT * FROM telegram_chats ORDER BY created_at")]
+
+
+def bind_telegram_chat(chat_id: str, area_id: str, list_id: str, title: str = "") -> None:
+    store.execute(
+        "INSERT INTO telegram_chats (chat_id, area_id, list_id, title, created_at)"
+        " VALUES (?,?,?,?,?)"
+        ' ON CONFLICT (chat_id) DO UPDATE SET area_id = excluded.area_id,'
+        " list_id = excluded.list_id, title = excluded.title",
+        (str(chat_id), area_id or "", list_id or "", title[:80], now_ts()))
+
+
+def unbind_telegram_chat(chat_id: str) -> None:
+    store.execute("DELETE FROM telegram_chats WHERE chat_id=?", (str(chat_id),))
+
+
+def telegram_person(tg_user_id: str) -> str:
+    if not tg_user_id:
+        return ""
+    row = store.one("SELECT person_id FROM telegram_users WHERE tg_user_id=?",
+                    (str(tg_user_id),))
+    return row["person_id"] if row else ""
+
+
+def bind_telegram_user(tg_user_id: str, person_id: str) -> None:
+    store.execute(
+        "INSERT INTO telegram_users (tg_user_id, person_id, created_at) VALUES (?,?,?)"
+        ' ON CONFLICT (tg_user_id) DO UPDATE SET person_id = excluded.person_id',
+        (str(tg_user_id), person_id, now_ts()))
+
+
 # --- Personen -----------------------------------------------------------
 
 def _person_row(row: dict) -> dict:
@@ -510,6 +576,7 @@ def _todo_row(row: dict) -> dict:
         "doneBy": row.get("done_by") or "",
         "noteSource": row.get("note_source") or "",
         "detail": row.get("detail") or "",
+        "clientId": row.get("client_id") or "",
     }
 
 
@@ -531,8 +598,9 @@ def create_todo(data: dict) -> dict:
     store.execute(
         "INSERT INTO todos (id, title, raw_input, note, list_id, assignee_id, horizon,"
         " due_date, priority, status, confidence, question, tags, engine, suggestion,"
-        " created_at, done_at, repeat_rule, minutes, created_from, note_source)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        " created_at, done_at, repeat_rule, minutes, created_from, note_source,"
+        " client_id)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             todo_id,
             (data.get("title") or "").strip() or "Ohne Titel",
@@ -547,9 +615,23 @@ def create_todo(data: dict) -> dict:
             data.get("createdAt") or now_ts(), data.get("doneAt"),
             data.get("repeat", ""), int(data.get("minutes") or 0),
             data.get("createdFrom", ""), data.get("noteSource", ""),
+            (data.get("clientId") or "")[:64],
         ),
     )
     return get_todo(todo_id)
+
+
+def todo_by_client_id(client_id: str) -> dict | None:
+    """Findet einen Eintrag an der Kennung, die der Browser vergeben hat.
+
+    Die Warteschlange im Browser schickt einen Eintrag erneut, wenn die
+    Antwort unterwegs verloren ging - der Eintrag kann dann aber schon
+    angelegt sein. Ohne diese Suche stünde die Milch zweimal auf dem Zettel.
+    """
+    if not client_id:
+        return None
+    row = store.one("SELECT * FROM todos WHERE client_id=?", (client_id,))
+    return _todo_row(row) if row else None
 
 
 def update_todo(todo_id: str, fields: dict) -> dict | None:

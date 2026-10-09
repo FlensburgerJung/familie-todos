@@ -1,8 +1,8 @@
-/* Service Worker: hält die App-Hülle offline verfügbar.
+/* Service Worker: hält die App-Hülle offline und sofort verfügbar.
    API-Antworten werden bewusst nicht gecacht - veraltete Todos wären
    schlimmer als eine ehrliche Fehlermeldung. */
 
-const CACHE = 'familie-todos-v27';
+const CACHE = 'familie-todos-v28';
 const SHELL = ['/', '/index.html', '/style.css', '/app.js', '/icon.svg',
                '/icon-192.png', '/icon-512.png', '/manifest.webmanifest'];
 
@@ -26,14 +26,31 @@ self.addEventListener('fetch', event => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname.endsWith('.ics')) return;
 
-  // Netz zuerst, damit Änderungen an der App sofort ankommen; Cache als Netz.
+  /* Cache zuerst, Aktualisierung im Hintergrund.
+
+     Vorher stand hier "Netz zuerst". Das klang richtig - Änderungen kommen
+     sofort an -, hieß in der Praxis aber: Schläft der Dienst beim Hoster,
+     wartet die App bis zu einer Minute auf Hülle, CSS und JavaScript, obwohl
+     all das längst im Cache liegt. Man starrt auf eine weiße Seite, um am
+     Ende genau das zu sehen, was schon da war.
+
+     Jetzt wird sofort aus dem Cache geliefert und parallel nachgeladen. Die
+     App öffnet sich unabhängig davon, ob der Server wach ist. Preis dafür:
+     Eine neue Fassung erscheint erst beim übernächsten Start. */
   event.respondWith(
-    fetch(request)
-      .then(response => {
-        const copy = response.clone();
-        caches.open(CACHE).then(cache => cache.put(request, copy)).catch(() => {});
-        return response;
-      })
-      .catch(() => caches.match(request).then(hit => hit || caches.match('/index.html')))
+    caches.match(request).then(treffer => {
+      const ausDemNetz = fetch(request)
+        .then(response => {
+          if (response && response.ok) {
+            const kopie = response.clone();
+            caches.open(CACHE).then(cache => cache.put(request, kopie)).catch(() => {});
+          }
+          return response;
+        })
+        .catch(() => treffer || caches.match('/index.html'));
+
+      // Liegt etwas im Cache, zählt nur das - der Rest läuft nebenher.
+      return treffer || ausDemNetz;
+    })
   );
 });

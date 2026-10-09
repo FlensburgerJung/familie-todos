@@ -13,7 +13,7 @@ import traceback
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from . import auth, calendar_ics, classify, config, db, recipe, store
+from . import auth, calendar_ics, classify, config, db, recipe, store, telegram
 from .constants import (
     DEFAULT_HORIZON,
     EFFORTS,
@@ -80,6 +80,14 @@ def _capture(payload: dict) -> dict:
     text = (payload.get("text") or "").strip()
     if not text:
         raise ApiError("Der Text ist leer.")
+
+    # Schon einmal angekommen? Die Warteschlange im Browser reicht einen
+    # Eintrag erneut ein, wenn sie keine Antwort gesehen hat - angelegt sein
+    # kann er trotzdem längst.
+    bekannt = db.todo_by_client_id((payload.get("clientId") or "").strip())
+    if bekannt:
+        return {"todo": bekannt, "engine": bekannt.get("engine", ""),
+                "problems": [], "autoFiled": True, "duplicate": True}
     horizon = payload.get("horizon") or DEFAULT_HORIZON
     if horizon not in HORIZONS:
         horizon = DEFAULT_HORIZON
@@ -125,6 +133,7 @@ def _capture(payload: dict) -> dict:
             "title": text[:120], "rawInput": text, "listId": chosen_list,
             "assigneeId": chosen_person or None,
             "status": "open", "confidence": 1.0, "engine": "manuell",
+            "clientId": payload.get("clientId", ""),
         })
         return {"todo": todo, "engine": "manuell", "problems": [], "autoFiled": True}
 
@@ -168,6 +177,7 @@ def _capture(payload: dict) -> dict:
             result["due_date"] = None
 
     todo = db.create_todo({
+        "clientId": payload.get("clientId", ""),
         "title": result["title"], "rawInput": text, "note": result["note"],
         "listId": result["list"] or None, "assigneeId": result["assignee"] or None,
         "horizon": horizon, "dueDate": result["due_date"], "priority": result["priority"],
@@ -551,6 +561,26 @@ def _handle(request: Request) -> Response:
             {"id": p["id"], "name": p["name"], "emoji": p["emoji"]}
             for p in db.get_people()]})
 
+    # --- Telegram ---
+    # Bewusst vor dem Passwort-Gate: Telegram kann sich nicht anmelden. An
+    # dessen Stelle treten zwei Prüfungen - das Geheimnis im Header, mit dem
+    # Telegram sich ausweist, und die Freigabe des einzelnen Chats weiter
+    # unten im Modul. Ein fremder Chat kann nichts eintragen.
+    if path == "/api/telegram" and request.method == "POST":
+        if not telegram.enabled():
+            return Response(404, b"Nicht gefunden", "text/plain; charset=utf-8")
+        kopf = request.environ.get("HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN")
+        if not telegram.secret_ok(kopf):
+            return Response(403, b"Verboten", "text/plain; charset=utf-8")
+        try:
+            antwort = telegram.handle(request.body(), _capture)
+        except Exception:
+            # Ein Fehler darf Telegram nicht zum Dauerwiederholen bringen,
+            # aber verschluckt werden soll er auch nicht.
+            traceback.print_exc()
+            antwort = None
+        return json_response(antwort or {"ok": True})
+
     if path == "/api/session" and request.method == "GET":
         return json_response({"authEnabled": auth.enabled(),
                               "signedIn": auth.is_signed_in(request.cookie)})
@@ -669,6 +699,7 @@ def application(environ, start_response):
 # Die Konfiguration wird sofort geprüft - das braucht kein Netz und soll den
 # Start verweigern, bevor eine ungeschützte App online geht.
 auth.check_startup()
+telegram.check_startup()
 
 # Die Datenbank dagegen erst beim ersten Zugriff. Beim Import darauf zu warten
 # hieße: Faehrt die Datenbank gerade hoch, oeffnet der Server nie seinen Port,

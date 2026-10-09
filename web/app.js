@@ -264,20 +264,43 @@ function versteckeWarteBalken() {
   balken.classList.remove('show');
 }
 
+/* Nicht jede laufende Anfrage ist eine, auf die jemand wartet. Ein
+   eingeworfener Eintrag gilt als erledigt, sobald er in der Warteschlange
+   liegt - die Anfrage dazu läuft noch, aber niemand schaut ihr zu. Ohne
+   diese Unterscheidung dreht sich oben weiter ein Balken, während unten
+   „Gemerkt" steht: zwei Aussagen, die einander widersprechen. */
+let stilleAnfragen = 0;
+
+function jemandWartet() {
+  return offeneAnfragen - stilleAnfragen > 0;
+}
+
+function pruefeWarteBalken() {
+  if (jemandWartet()) return;
+  clearTimeout(balkenTimer);
+  versteckeWarteBalken();
+}
+
 function anfrageBeginnt() {
   offeneAnfragen++;
-  if (offeneAnfragen === 1) {
+  if (jemandWartet() && !balkenTimer) {
     // Kurze Anfragen sollen keinen Balken aufblitzen lassen.
-    balkenTimer = setTimeout(zeigeWarteBalken, 1200);
+    balkenTimer = setTimeout(() => { balkenTimer = null; zeigeWarteBalken(); }, 1200);
   }
 }
 
 function anfrageEndet() {
   offeneAnfragen = Math.max(0, offeneAnfragen - 1);
-  if (offeneAnfragen === 0) {
-    clearTimeout(balkenTimer);
-    versteckeWarteBalken();
-  }
+  pruefeWarteBalken();
+}
+
+/* Ab hier wartet niemand mehr auf dieses Versprechen. */
+function inDenHintergrund(versprechen) {
+  stilleAnfragen++;
+  pruefeWarteBalken();
+  return versprechen.finally(() => {
+    stilleAnfragen = Math.max(0, stilleAnfragen - 1);
+  });
 }
 
 async function api(path, method = 'GET', body) {
@@ -383,6 +406,18 @@ function enqueue(entry) {
   const queue = readQueue();
   queue.push(entry);
   writeQueue(queue);
+}
+
+/* Ein angekommener Eintrag verlässt die Warteschlange wieder. Erkannt wird
+   er an der Kennung, die der Browser beim Einwerfen vergeben hat. */
+function dequeue(clientId) {
+  if (!clientId) return;
+  writeQueue(readQueue().filter(entry => entry.clientId !== clientId));
+}
+
+function neueKennung() {
+  if (self.crypto && crypto.randomUUID) return crypto.randomUUID();
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
 async function flushQueue() {
@@ -2384,19 +2419,54 @@ function render() {
 
 /* ---------- Eingabe ---------- */
 
+/* Wie lange auf eine Antwort gewartet wird, bevor der Einwurf als erledigt
+   gilt. Ist der Server wach, antwortet er in Sekundenbruchteilen und man
+   sieht sofort, wohin der Eintrag gewandert ist. Schläft er, hat Warten
+   keinen Wert: der Eintrag liegt längst sicher in der Warteschlange. */
+const GEDULD_MS = 2500;
+
+/* Was nach einer erfolgreichen Einordnung zu zeigen ist - als eigene
+   Funktion, weil die Antwort auch verspätet eintreffen kann. */
+function zeigeEinordnung(result, chosenList) {
+  const list = listById(result.todo.listId);
+  if (result.autoFiled || chosenList) {
+    toast(`→ ${list ? list.emoji + ' ' + list.name : 'einsortiert'}, ${formatDue(result.todo.dueDate)}`);
+  } else {
+    state.tab = 'start';
+    state.focus = { kind: 'inbox' };
+    toast('Kurz bestätigen bitte.');
+  }
+  if (result.problems && result.problems.length) {
+    console.warn('Anbieter-Probleme:', result.problems);
+  }
+  // Ist die Einordnung auf die Stichwortsuche zurückgefallen, soll das
+  // auffallen - sonst wundert man sich still über schlechte Treffer.
+  if (result.engine === 'heuristic' && result.problems && result.problems.length) {
+    state.engineProblem = result.problems[0];
+    renderBadge();
+    toast('Kein Modell erreichbar — nur Stichwortsuche. Details unter „Mehr".', true);
+  } else if (state.engineProblem) {
+    state.engineProblem = null;
+  }
+}
+
+/* Einwerfen soll sich nie wie Warten anfühlen.
+
+   Früher lief hier erst die Anfrage und das Feld wurde danach geleert - bei
+   schlafendem Server also bis zu anderthalb Minuten später. Genau das macht
+   das schnelle Reinwerfen kaputt, für das die App gedacht ist.
+
+   Jetzt wandert der Eintrag zuerst in die Warteschlange im Browser und das
+   Feld ist sofort wieder frei. Die Anfrage läuft parallel: Kommt sie schnell
+   zurück, verschwindet der Eintrag wieder aus der Warteschlange und man
+   sieht die Einordnung wie gewohnt. Kommt sie nicht, bleibt er liegen und
+   wird später nachgereicht - notfalls erst beim nächsten Start. */
 async function submitCapture(event, kindHint) {
   if (event) event.preventDefault();
   if (state.busy) return;
   const textarea = document.getElementById('capture-text');
   const text = textarea.value.trim();
   if (!text) return;
-
-  const button = document.getElementById('capture-submit');
-  const hint = document.getElementById('capture-hint');
-  state.busy = true;
-  button.disabled = true;
-  button.textContent = 'Sortiere…';
-  hint.innerHTML = '<span class="spin"></span> Wird eingeordnet…';
 
   const listSelect = document.getElementById('capture-list');
   const personSelect = document.getElementById('capture-person');
@@ -2406,58 +2476,64 @@ async function submitCapture(event, kindHint) {
     listId: listSelect ? listSelect.value : '',
     assigneeId: personSelect ? personSelect.value : '',
     kind: kindHint || '',
+    // Die Kennung verhindert Doppeleinträge: Der Server erkennt daran einen
+    // Eintrag wieder, dessen Antwort unterwegs verloren ging.
+    clientId: neueKennung(),
   };
-  try {
-    const chosenList = payload.listId;
-    const result = await apiWithPatience('/api/capture', attempt => {
-      hint.innerHTML = '<span class="spin"></span> Server wacht auf, '
-                     + `Versuch ${attempt + 1} …`;
-    }, 'POST', payload);
-    textarea.value = '';
-    // Auswahl zurücksetzen, damit der nächste Einwurf wieder automatisch geht.
-    if (listSelect) listSelect.value = '';
-    if (personSelect) personSelect.value = '';
-    const list = listById(result.todo.listId);
-    if (result.autoFiled || chosenList) {
-      toast(`→ ${list ? list.emoji + ' ' + list.name : 'einsortiert'}, ${formatDue(result.todo.dueDate)}`);
-    } else {
-      state.tab = 'start';
-      state.focus = { kind: 'inbox' };
-      toast('Kurz bestätigen bitte.');
-    }
-    if (result.problems && result.problems.length) {
-      console.warn('Anbieter-Probleme:', result.problems);
-    }
-    // Ist die Einordnung auf die Stichwortsuche zurückgefallen, soll das
-    // auffallen - sonst wundert man sich still über schlechte Treffer.
-    if (result.engine === 'heuristic' && result.problems && result.problems.length) {
-      state.engineProblem = result.problems[0];
-      renderBadge();
-      toast('Kein Modell erreichbar — nur Stichwortsuche. Details unter „Mehr".', true);
-    } else if (state.engineProblem) {
-      state.engineProblem = null;
-    }
+  const chosenList = payload.listId;
+
+  // Ab hier ist der Gedanke verwahrt - auch wenn die App gleich zugeht.
+  enqueue(payload);
+  textarea.value = '';
+  if (listSelect) listSelect.value = '';
+  if (personSelect) personSelect.value = '';
+
+  const button = document.getElementById('capture-submit');
+  const hint = document.getElementById('capture-hint');
+  state.busy = true;
+  button.disabled = true;
+  button.textContent = 'Sortiere…';
+  hint.innerHTML = '<span class="spin"></span> Wird eingeordnet…';
+
+  const unterwegs = apiWithPatience('/api/capture', null, 'POST', payload).then(
+    result => { dequeue(payload.clientId); return { ok: true, result }; },
+    error => ({ ok: false, error }),
+  );
+
+  const antwort = await Promise.race([unterwegs, sleep(GEDULD_MS).then(() => null)]);
+
+  if (antwort && antwort.ok) {
+    zeigeEinordnung(antwort.result, chosenList);
     await refresh();
-  } catch (error) {
-    if (error.status === 401) { showLogin(); return; }
-    // Kein Netz oder Server weg: lokal merken und später nachreichen.
-    enqueue(payload);
-    textarea.value = '';
+  } else if (antwort && antwort.error.status === 401) {
+    showLogin();
+  } else if (antwort) {
     toast('Offline gemerkt — wird nachgereicht.', true);
-    renderBadge();
-  } finally {
-    state.busy = false;
-    button.disabled = false;
-    button.textContent = 'Rein damit';
-    hint.textContent = 'Wird automatisch einsortiert.';
-    if (isTouch) {
-      // Tastatur schließen und Eingabe zuklappen, sonst verdeckt beides
-      // die Rückmeldung und die Liste darunter.
-      textarea.blur();
-      collapseCapture();
-    } else {
-      textarea.focus();
-    }
+  } else {
+    // Noch keine Antwort. Nicht länger blockieren, sondern im Hintergrund
+    // zu Ende führen.
+    toast('📥 Gemerkt — wird gesendet, sobald der Server wach ist.');
+    inDenHintergrund(unterwegs).then(spaet => {
+      if (spaet.ok) {
+        zeigeEinordnung(spaet.result, chosenList);
+        refresh();
+      }
+      renderBadge();
+    });
+  }
+  renderBadge();
+
+  state.busy = false;
+  button.disabled = false;
+  button.textContent = 'Rein damit';
+  hint.textContent = 'Wird automatisch einsortiert.';
+  if (isTouch) {
+    // Tastatur schließen und Eingabe zuklappen, sonst verdeckt beides
+    // die Rückmeldung und die Liste darunter.
+    textarea.blur();
+    collapseCapture();
+  } else {
+    textarea.focus();
   }
 }
 

@@ -18,13 +18,15 @@ Docker wäre nur nötig, wenn die App etwas Exotisches bräuchte. Tut sie nicht.
 **Umgebungsvariablen** sind Einstellungen, die *neben* dem Code liegen statt
 darin. Das Familienpasswort oder ein API-Schlüssel gehören nicht ins Repository
 — sonst stünden sie bei GitHub für alle lesbar. Stattdessen trägst du sie bei
-Render in ein Formular ein, und die App liest sie beim Start. Diese App nutzt vier:
+Render in ein Formular ein, und die App liest sie beim Start:
 
 | Variable | Bedeutung | Wo gebraucht |
 |---|---|---|
 | `APP_PASSWORD` | Familienpasswort. Gesetzt = Anmeldung an. | nur online (Pflicht) |
 | `DATABASE_URL` | Adresse der Postgres-Datenbank. Gesetzt = Postgres statt SQLite. | nur online |
 | `MISTRAL_API_KEY` | Schlüssel fürs Modell (oder `ANTHROPIC_…` / `OPENAI_…`) | online, zuhause optional |
+| `TELEGRAM_BOT_TOKEN` | Einwerfen per Telegram. Leer = Bot aus. | optional |
+| `TELEGRAM_WEBHOOK_SECRET` | Weist Telegram aus. Pflicht, sobald ein Token gesetzt ist. | mit Telegram |
 | `PORT` | Setzt Render selbst. | automatisch |
 
 Genau daran erkennt die App, in welcher Betriebsart sie läuft. Am Code ändert
@@ -151,6 +153,156 @@ Die Adresse steht unter **Einstellungen → Kalender** — online hängt ein
 Schlüssel daran (`?token=…`), weil Kalender-Programme keine Anmeldung
 mitschicken können. Wer die Adresse hat, sieht die Termine: also nur in der
 Familie weitergeben.
+
+---
+
+## Gegen das Einschlafen
+
+Der kostenlose Render-Tarif schaltet den Dienst nach 15 Minuten ohne Zugriff
+ab. Der nächste Aufruf weckt ihn, das dauert knapp eine Minute. Drei Wege
+führen daran vorbei — sie schließen sich nicht aus.
+
+### A) Einwerfen wartet ohnehin nicht mehr
+
+Dafür musst du nichts tun, das macht die App seit v27 von allein: Ein
+eingeworfener Eintrag landet sofort in einer Warteschlange im Browser, das
+Feld ist augenblicklich wieder frei. Gesendet wird im Hintergrund — notfalls
+erst beim nächsten Öffnen. Auch die App selbst startet jetzt sofort aus dem
+Zwischenspeicher, statt auf den Server zu warten.
+
+Bleibt: Wer die *Listen ansehen* will, wartet weiter auf den Kaltstart.
+
+### B) Externer Ping (kostenlos)
+
+Ein Dienst wie [cron-job.org](https://cron-job.org) ruft regelmäßig eine
+Adresse auf. Jeder Aufruf gilt für Render als Zugriff, der Dienst bleibt wach.
+
+1. Dort anmelden, **Create cronjob**
+2. URL: `https://<dein-dienst>.onrender.com/api/health`
+3. Intervall: alle 10 Minuten
+
+`/api/health` antwortet absichtlich **ohne** Datenbankzugriff — der Ping
+weckt also den Dienst, lässt aber Neon in Ruhe.
+
+> **Achtung, Stundenkontingent.** Render gibt im kostenlosen Tarif eine
+> begrenzte Zahl Instanzstunden pro Monat, und die teilen sich *alle* deine
+> freien Dienste. Rund um die Uhr wachzuhalten verbraucht fast das ganze
+> Kontingent — bei zwei Diensten reicht es nicht. Stell den Ping deshalb auf
+> die Zeiten, zu denen ihr die App wirklich nutzt (etwa 7–23 Uhr). Den
+> aktuellen Stand zeigt dein Render-Dashboard.
+
+### C) Starter-Tarif (ca. 7 $/Monat)
+
+Schläft gar nicht erst ein, kein Ping nötig, kein Kontingent im Blick. Ein
+Klick im Render-Dashboard.
+
+---
+
+## Einwerfen per Telegram (optional)
+
+Die eleganteste Lösung fürs schnelle Reinwerfen — vor allem für alle, die
+die App nicht extra öffnen wollen. Man schreibt in einen Chat, fertig.
+
+Warum das auch bei schlafendem Dienst funktioniert: **Telegram hält eine
+nicht zugestellte Nachricht vor und stellt sie erneut zu**, rund einen Tag
+lang. Die Nachricht ist also raus, sobald der Chat sie anzeigt. Dass der
+Dienst erst aufwachen muss, merkt niemand — die Bestätigung kommt eben
+etwas später.
+
+### 1. Bot anlegen
+
+In Telegram **@BotFather** anschreiben:
+
+```
+/newbot
+```
+
+Namen und Benutzernamen vergeben. Am Ende kommt ein Token der Form
+`123456789:AA…`. Soll der Bot in **Gruppen** mitlesen, gleich noch:
+
+```
+/setprivacy   →  Bot wählen  →  Disable
+```
+
+Ohne das sieht er dort nur Befehle, keine normalen Nachrichten.
+
+### 2. Zwei Variablen setzen
+
+Bei Render unter **Environment**:
+
+| Variable | Wert |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | der Token von BotFather |
+| `TELEGRAM_WEBHOOK_SECRET` | etwas Langes, Zufälliges |
+
+Das Geheimnis würfelst du dir so:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+```
+
+Es verhindert, dass jemand anderes dem Dienst vortäuscht, Telegram zu sein.
+Ohne das Geheimnis startet die App mit Token gar nicht erst.
+
+### 3. Webhook anmelden
+
+Einmalig, von deinem Rechner aus (die `.env` muss den Token enthalten):
+
+```bash
+python3 -m app.telegram_setup https://<dein-dienst>.onrender.com
+```
+
+Nachsehen, ob alles steht:
+
+```bash
+python3 -m app.telegram_setup --status
+```
+
+Dort steht auch `Wartend:` — die Zahl der Nachrichten, die Telegram gerade
+für dich aufbewahrt, weil der Dienst noch nicht geantwortet hat.
+
+### 4. Chats verbinden
+
+Lege so viele Gruppen an, wie du willst — eine für Einkauf, eine für Todos,
+eine für Wunschzettel —, füge den Bot jeweils hinzu und sag ihm, wohin der
+Chat schreibt:
+
+```
+/hier einkauf <Familienpasswort>
+```
+
+Das Passwort braucht es nur beim ersten Mal; danach gilt der Chat als
+freigegeben. **Die Nachricht danach löschen**, sie steht sonst im
+Gruppenverlauf.
+
+Ein Chat lässt sich auf zweierlei Art verbinden:
+
+| Befehl | Wirkung |
+|---|---|
+| `/hier todos` | **Bereich.** Die Einordnung wählt die passende Liste. |
+| `/hier taeglicher-bedarf` | **Eine feste Liste.** Kein Modellaufruf, sofort, immer richtig. |
+
+Für Einkaufszettel ist die zweite Form klar besser: „Milch" soll auf den
+täglichen Bedarf, nicht nach Gutdünken auf einen von sieben Zetteln.
+
+### Was der Bot kann
+
+| Befehl | Wirkung |
+|---|---|
+| *(einfach schreiben)* | Jede Zeile wird ein Eintrag — bis zu 20 auf einmal |
+| `/hier` | zeigt, womit dieser Chat verbunden ist |
+| `/hier <Ziel> [Passwort]` | verbindet den Chat |
+| `/weg` | löst die Verbindung |
+| `/ichbin <Name>` | sagt, wer du bist |
+| `/wer` | zeigt, als wen der Bot dich kennt |
+| `/hilfe` | kurze Übersicht |
+
+`/ichbin` wirkt nur bei **Sammlungen**: Ein Wunsch, den Thilo einwirft, ist
+ein Wunsch *für* Thilo. Bei Aufgaben bleibt der Absender bewusst außen vor —
+wer den tropfenden Wasserhahn meldet, hat ihn nicht zu reparieren.
+
+Nicht verbundene Chats können nichts eintragen. Der Bot ist über seinen
+Namen auffindbar; ohne diese Sperre stünde Fremdes auf dem Einkaufszettel.
 
 ---
 

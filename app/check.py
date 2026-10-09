@@ -13,7 +13,7 @@ import os
 import sys
 import uuid
 
-from . import auth, classify, config, db, store
+from . import auth, classify, config, db, store, telegram
 
 OK, FAIL, INFO = "  ✓", "  ✗", "  ·"
 
@@ -25,6 +25,9 @@ def main() -> int:
     print(f"{INFO} Speicher:   {store.describe()}")
     print(f"{INFO} Umgebung:   {'Hoster' if auth.is_hosted() else 'lokal'}")
     print(f"{INFO} Anmeldung:  {'Passwort gesetzt' if auth.enabled() else 'aus'}")
+    print(f"{INFO} Telegram:   {'Bot aktiv' if telegram.enabled() else 'aus'}")
+    if telegram.enabled() and auth.is_hosted() and not telegram.secret():
+        print(f"{FAIL} TELEGRAM_WEBHOOK_SECRET fehlt - der Webhook wäre ungeschützt.")
 
     if auth.is_hosted() and not auth.enabled():
         print(f"{FAIL} Bei einem Hoster ohne APP_PASSWORD wären die Listen öffentlich.")
@@ -63,6 +66,11 @@ def main() -> int:
 
     counts = (len(db.get_lists()), len(db.get_people()), len(db.get_todos()))
     print(f"{INFO} Inhalt: {counts[0]} Listen, {counts[1]} Personen, {counts[2]} Todos")
+    if telegram.enabled():
+        for chat in db.telegram_chats():
+            ziel = db.get_list(chat["listId"]) if chat["listId"] else None
+            name = ziel["name"] if ziel else (chat["areaId"] or "?")
+            print(f"{INFO} Telegram-Chat „{chat['title'] or chat['chatId']}“ -> {name}")
 
     try:
         export = db.export_all()

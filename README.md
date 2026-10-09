@@ -355,16 +355,58 @@ die Termine — also nur innerhalb der Familie weitergeben.
 
 ## Wenn der Server erst aufwachen muss
 
-Auf dem kostenlosen Tarif schläft der Dienst nach 15 Minuten ein. Die erste
-Aktion danach dauert dann bis zu einer Minute. Damit niemand in der Zeit
-ungeduldig weitertippt, erscheint nach gut einer Sekunde oben ein Balken:
+Auf dem kostenlosen Tarif schläft der Dienst nach 15 Minuten ein; die erste
+Aktion danach dauert bis zu einer Minute. Davon soll man möglichst wenig
+merken — an drei Stellen:
+
+**Die App öffnet sich sofort.** Hülle, CSS und JavaScript kommen aus dem
+Zwischenspeicher, ohne auf den Server zu warten; nachgeladen wird im
+Hintergrund. Preis dafür: Eine neue Fassung der App erscheint erst beim
+übernächsten Start.
+
+**Einwerfen wartet nie.** Der Eintrag landet zuerst in einer Warteschlange im
+Browser, das Feld ist augenblicklich wieder frei. Antwortet der Server
+innerhalb von 2,5 Sekunden, siehst du wie gewohnt, wohin er einsortiert
+wurde. Sonst:
+
+> 📥 Gemerkt — wird gesendet, sobald der Server wach ist.
+
+Gesendet wird dann im Hintergrund, notfalls erst beim nächsten Öffnen. Jeder
+Eintrag trägt eine Kennung, an der der Server ihn wiedererkennt — eine
+erneute Zustellung legt ihn kein zweites Mal an.
+
+**Beim Lesen bleibt der Balken.** Wer die Listen ansehen will, wartet weiter
+auf den Kaltstart. Nach gut einer Sekunde erscheint dafür oben:
 
 > ⏳ Der Server war eingeschlafen und fährt hoch (12 s). Bitte nicht mehrfach
 > tippen, es geht nichts verloren.
 
-Die Sekundenzahl läuft mit, damit man sieht, dass etwas passiert. Beim Öffnen
-der App erscheinen die Listen schon vorher aus dem Zwischenspeicher — dann mit
-einem gelben Hinweis, dass es ein älterer Stand ist.
+Die Sekundenzahl läuft mit. Die Listen erscheinen schon vorher aus dem
+Zwischenspeicher, mit einem gelben Hinweis, dass es ein älterer Stand ist.
+Ganz abstellen lässt sich das Einschlafen mit einem externen Ping oder dem
+Starter-Tarif — beides steht in [EINRICHTUNG.md](EINRICHTUNG.md).
+
+## Einwerfen per Telegram
+
+Optional, und der bequemste Weg: In einen Telegram-Chat schreiben, fertig.
+Telegram hält eine nicht zugestellte Nachricht rund einen Tag lang vor und
+stellt sie erneut zu — ob der Dienst gerade wach ist, spielt also keine
+Rolle.
+
+Je Chat wird einmal festgelegt, wohin er schreibt:
+
+```
+/hier einkauf <Familienpasswort>     Bereich — die Einordnung wählt die Liste
+/hier taeglicher-bedarf <Passwort>   feste Liste — kein Modellaufruf, sofort
+```
+
+Danach wird jede Zeile einer Nachricht ein Eintrag. So lassen sich getrennte
+Gruppen für Einkauf, Todos und Wunschzettel führen — oder ein einzelner
+Privatchat. `/ichbin <Name>` wirkt nur bei Sammlungen: Ein Wunsch von Thilo
+ist ein Wunsch *für* Thilo; bei Aufgaben bleibt der Absender außen vor.
+
+Nicht verbundene Chats können nichts eintragen. Einrichtung in
+[EINRICHTUNG.md](EINRICHTUNG.md).
 
 ## Offline
 
