@@ -284,6 +284,36 @@ keine Dauer, erscheinen nicht unter „überfällig", nicht im Tab „Listen", n
 bei „frei zu vergeben" und nicht im Kalender. Ein Buchtipp oder „mal an die
 Ostsee fahren" soll einen schließlich nicht als überfällig anmahnen.
 
+### „Ich bin bei …"
+
+Die Einkaufszettel sind nach Anlass sortiert — täglicher Bedarf, Baumarkt,
+persönlich. Im Laden stellt sich die umgekehrte Frage: nicht „was steht auf
+dem Baumarktzettel", sondern „was von allem brauche ich, das es *hier* gibt".
+Shampoo steht beim täglichen Bedarf, ist aber bei Rossmann zu haben.
+
+Auf der Einkauf-Seite steht dafür oben **📍 Ich bin bei …**. Laden eintippen,
+und das Modell geht alle Einkaufszettel durch:
+
+```
+Rossmann — Drogerie
+  ☐ Shampoo            Täglicher Bedarf
+  ☐ Zahnpasta          Täglicher Bedarf
+  ☐ Windeln Größe 4    Täglicher Bedarf
+  ☐ Batterien AA       Elektro
+  VIELLEICHT AUCH
+  ☐ Milch              Täglicher Bedarf
+  ☐ Brot               Täglicher Bedarf
+```
+
+Abgehakt wird direkt dort, während man im Gang steht. Was es dort nur
+manchmal gibt, steht getrennt unter *vielleicht auch* — lieber ehrlich als
+falsche Sicherheit. Einen unbekannten Laden sagt das Modell als solchen an,
+statt zu raten.
+
+Eine Tabelle „welche Kette führt was" muss niemand pflegen: Das Modell kennt
+dm, Rossmann, Budni, Edeka, Obi und so weiter. Benutzte Läden merkt sich die
+App und bietet sie beim nächsten Mal zum Antippen an.
+
 ### Rezept zu einer Essensidee
 
 Unter jedem Eintrag in **🍲 Essensideen** steht ein Knopf **Rezept**. Dort gibt

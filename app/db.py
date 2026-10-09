@@ -132,6 +132,8 @@ DEFAULT_SETTINGS = {
     "ollama_model": "gemma4:12b-mlx",
     "ollama_url": "http://localhost:11434",
     "auto_assign": "1",
+    # Zuletzt benutzte Geschäfte für „Ich bin bei …", kommagetrennt.
+    "shops": "",
     # Wird beim ersten Start durch einen Zufallswert ersetzt: Kalender-Abos
     # können keine Cookies mitschicken, deshalb hängt am Feed ein eigener Schlüssel.
     "calendar_token": "",

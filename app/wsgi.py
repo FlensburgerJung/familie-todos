@@ -13,7 +13,8 @@ import traceback
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from . import auth, calendar_ics, classify, config, db, recipe, store, telegram
+from . import (auth, calendar_ics, classify, config, db, recipe, shopping,
+               store, telegram)
 from .constants import (
     DEFAULT_HORIZON,
     EFFORTS,
@@ -236,6 +237,66 @@ def _create_todo(payload: dict) -> dict:
         "confidence": 1.0,
         "engine": "manuell",
     })}
+
+
+MAX_SHOPS = 8
+
+
+def _merke_laden(name: str) -> None:
+    """Zuletzt benutzte Geschäfte vorhalten, damit man sie antippen kann."""
+    bisher = [s.strip() for s in db.get_settings().get("shops", "").split(",") if s.strip()]
+    bisher = [s for s in bisher if s.lower() != name.lower()]
+    db.set_settings({"shops": ",".join([name] + bisher)[:400]})
+
+
+def _shopping_here(payload: dict) -> dict:
+    """„Ich bin bei …" - die Einkaufszettel nach diesem Geschäft durchsehen."""
+    laden = (payload.get("shop") or "").strip()[:60]
+    if not laden:
+        raise ApiError("Bitte sagen, in welchem Geschäft du bist.")
+
+    zettel = {l["id"]: l for l in db.get_lists() if l.get("kind") == "shopping"}
+    posten = [t for t in db.get_todos(include_done=False) if t["listId"] in zettel]
+    if not posten:
+        raise ApiError("Auf den Einkaufszetteln steht gerade nichts.")
+
+    geprueft = posten[:shopping.MAX_POSTEN]
+    items = [{"title": t["title"], "listName": zettel[t["listId"]]["name"]}
+             for t in geprueft]
+
+    try:
+        ergebnis, anbieter = shopping.where_to_buy(laden, items, config.load())
+    except Exception as exc:
+        raise ApiError(str(exc), 502) from exc
+
+    def aufloesen(nummern):
+        """Nummern zurück in Einträge übersetzen - das Modell liefert nur Zahlen."""
+        raus, gesehen = [], set()
+        for n in nummern or []:
+            if isinstance(n, int) and 1 <= n <= len(geprueft) and n not in gesehen:
+                gesehen.add(n)
+                raus.append(geprueft[n - 1])
+        return raus
+
+    treffer = aufloesen(ergebnis.get("posten"))
+    ids = {t["id"] for t in treffer}
+    # Was sicher da ist, muss nicht zusätzlich als unsicher erscheinen.
+    vielleicht = [t for t in aufloesen(ergebnis.get("unsicher")) if t["id"] not in ids]
+
+    # Nur merken, was das Modell auch erkannt hat - ein Laden, zu dem es
+    # nichts sagen konnte, taugt nicht als Vorschlag fürs nächste Mal.
+    if treffer or vielleicht:
+        _merke_laden(laden)
+    return {
+        "shop": laden,
+        "kind": str(ergebnis.get("laden") or ""),
+        "hits": treffer,
+        "maybe": vielleicht,
+        "hint": str(ergebnis.get("hinweis") or ""),
+        "engine": anbieter,
+        "checked": len(geprueft),
+        "total": len(posten),
+    }
 
 
 def _recipe(todo_id: str, payload: dict) -> dict:
@@ -510,6 +571,7 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", r"^/api/todos/([\w-]+)/confirm$", lambda m, p: _confirm(m.group(1), p)),
     ("POST", r"^/api/todos/([\w-]+)/restore$", lambda m, p: _restore(m.group(1))),
     ("POST", r"^/api/todos/([\w-]+)/recipe$", lambda m, p: _recipe(m.group(1), p)),
+    ("POST", r"^/api/shopping/here$", lambda m, p: _shopping_here(p)),
     ("GET", r"^/api/recent$", lambda m, p: {"todos": db.recently_done(24)}),
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
     ("DELETE", r"^/api/todos/([\w-]+)$", lambda m, p: _delete_todo(m.group(1))),

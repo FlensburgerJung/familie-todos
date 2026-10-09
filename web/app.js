@@ -1335,6 +1335,115 @@ function tile(label, value, detail, tone, onclick) {
   ]);
 }
 
+/* „Ich bin bei …" - die Einkaufszettel quer durchsehen.
+
+   Die Zettel sind nach Anlass geordnet: täglicher Bedarf, Baumarkt,
+   persönlich. Im Laden fragt man umgekehrt - nicht „was steht auf dem
+   Baumarktzettel", sondern „was von allem brauche ich, das es hier gibt".
+   Shampoo steht beim täglichen Bedarf, ist aber bei Rossmann zu haben.
+
+   Gefragt wird das Modell, statt eine Tabelle „welcher Laden führt was" zu
+   pflegen. Kennt es den Laden nicht, sagt es das, statt zu raten. */
+function ladenSuche() {
+  const feld = el('input', {
+    type: 'text', placeholder: 'z. B. Rossmann, Edeka, Bauhaus …',
+    'aria-label': 'In welchem Geschäft bist du?', autocomplete: 'off',
+  });
+  const ausgabe = el('div', { class: 'laden-ergebnis', hidden: true });
+
+  const suche = async (name) => {
+    const laden = (name || feld.value).trim();
+    if (!laden) { feld.focus(); return; }
+    feld.value = laden;
+    knopf.disabled = true;
+    const vorher = knopf.textContent;
+    knopf.textContent = 'Sieht nach …';
+    try {
+      const r = await api('/api/shopping/here', 'POST', { shop: laden });
+      zeigeLaden(ausgabe, r);
+      // Die Zettel selbst sind unverändert - nur die Ladenliste wächst.
+      state.settings = { ...state.settings, shops: [laden, ...zuletztLaeden()
+        .filter(l => l.toLowerCase() !== laden.toLowerCase())].join(',') };
+    } catch (error) {
+      ausgabe.hidden = false;
+      ausgabe.textContent = '';
+      ausgabe.append(el('p', { class: 'hint', text: error.message }));
+    } finally {
+      knopf.disabled = false;
+      knopf.textContent = vorher;
+    }
+  };
+
+  const knopf = el('button', {
+    class: 'btn btn-sm', type: 'submit', text: 'Nachsehen',
+  });
+
+  const zuletzt = zuletztLaeden().slice(0, 5);
+
+  return el('div', { class: 'laden-box' }, [
+    el('form', {
+      class: 'laden-zeile',
+      onsubmit: (event) => { event.preventDefault(); suche(); },
+    }, [
+      el('span', { class: 'laden-marke', text: '📍' }),
+      el('span', { class: 'laden-text', text: 'Ich bin bei' }),
+      feld,
+      knopf,
+    ]),
+    zuletzt.length
+      ? el('div', { class: 'laden-zuletzt' }, zuletzt.map(name => el('button', {
+          class: 'chip chip-knopf', type: 'button', text: name,
+          onclick: () => suche(name),
+        })))
+      : null,
+    ausgabe,
+  ]);
+}
+
+function zuletztLaeden() {
+  return String((state.settings || {}).shops || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function zeigeLaden(ziel, r) {
+  ziel.hidden = false;
+  ziel.textContent = '';
+
+  // Manche Modelle geben als Art den Ladennamen zurück - dann nicht doppeln.
+  const art = (r.kind || '').trim();
+  const kopf = art && art.toLowerCase() !== 'unbekannt'
+               && art.toLowerCase() !== r.shop.toLowerCase()
+    ? `${r.shop} — ${art}` : r.shop;
+  ziel.append(el('div', { class: 'laden-kopf', text: kopf }));
+
+  if (r.hint) ziel.append(el('p', { class: 'hint', text: r.hint }));
+
+  if (!r.hits.length && !r.maybe.length) {
+    ziel.append(el('p', { class: 'hint', text: 'Nichts von den Zetteln passt hierher.' }));
+    return;
+  }
+
+  const zeile = (todo) => {
+    const zettel = listById(todo.listId);
+    return el('div', { class: 'heute-zeile' }, [
+      hakenKnopf(todo, 'check check-klein'),
+      el('span', { class: 'laden-posten', text: todo.title }),
+      zettel ? el('span', { class: 'chip', text: zettel.name }) : null,
+    ]);
+  };
+
+  if (r.hits.length) ziel.append(...r.hits.map(zeile));
+  if (r.maybe.length) {
+    ziel.append(el('div', { class: 'laden-vielleicht' },
+      el('span', { text: 'vielleicht auch' })));
+    ziel.append(...r.maybe.map(zeile));
+  }
+  if (r.total > r.checked) {
+    ziel.append(el('p', { class: 'hint',
+      text: `Geprüft wurden die ersten ${r.checked} von ${r.total} Posten.` }));
+  }
+}
+
 function viewFocus() {
   const { kind, id } = state.focus;
   let title, hint, todos;
@@ -1438,6 +1547,9 @@ function viewFocus() {
         el('h2', { text: `${area.emoji} ${area.name}` }),
         el('p', { class: 'hint', text: area.hint }),
       ]),
+      // Nur beim Einkauf: Die Zettel sind nach Anlass sortiert, im Laden
+      // stellt sich aber die umgekehrte Frage.
+      id === 'shopping' ? ladenSuche() : null,
       el('div', { class: 'big-tiles' }, lists.map(list => {
         const count = openTodos().filter(t => t.listId === list.id);
         return el('button', {

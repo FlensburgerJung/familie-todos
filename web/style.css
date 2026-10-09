@@ -1183,6 +1183,40 @@ a.btn { text-decoration: none; display: inline-block; }
 .star { font-size: 17px; line-height: 1; color: var(--muted); padding: 4px 6px; }
 .star.an { color: var(--warn); }
 
+/* „Ich bin bei …" - steht über den Zetteln, weil es quer über sie hinweg
+   sucht. Zurückhaltend gerahmt: Es ist ein Werkzeug für den Laden, nicht
+   der Hauptinhalt der Seite. */
+.laden-box {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.laden-zeile { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.laden-marke { flex: 0 0 auto; font-size: 15px; }
+.laden-text { flex: 0 0 auto; font-size: 13px; color: var(--muted); }
+.laden-zeile input { flex: 1 1 140px; min-width: 0; }
+.laden-zeile .btn { flex: 0 0 auto; }
+.laden-zuletzt { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.chip-knopf { cursor: pointer; border: 1px solid var(--border); }
+.laden-ergebnis { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.laden-kopf { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.laden-posten { flex: 1; min-width: 0; font-size: 14px;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.laden-vielleicht {
+  margin: 8px 0 2px;
+  font-size: 11.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .laden-zeile input { flex: 1 1 100%; order: 3; min-height: 44px; }
+  .laden-zeile .btn { order: 4; flex: 1 1 100%; min-height: 44px; }
+}
+
 @media (max-width: 640px) {
   .crumbs { font-size: 13.5px; gap: 5px; }
   .crumb { min-height: 34px; }
