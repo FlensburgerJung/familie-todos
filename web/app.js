@@ -1423,14 +1423,16 @@ function zeigeLaden(ziel, r) {
     return;
   }
 
-  const zeile = (todo) => {
-    const zettel = listById(todo.listId);
-    return el('div', { class: 'heute-zeile' }, [
-      hakenKnopf(todo, 'check check-klein'),
-      el('span', { class: 'laden-posten', text: todo.title }),
-      zettel ? el('span', { class: 'chip', text: zettel.name }) : null,
-    ]);
-  };
+  const zeile = (todo) => el('div', { class: 'heute-zeile' }, [
+    hakenKnopf(todo, 'check check-klein'),
+    el('span', { class: 'laden-posten' }, [
+      todo.title,
+      // Wo es im Laden steht - im Gang nützlicher als der Zettelname.
+      todo.abteilung
+        ? el('span', { class: 'laden-abteilung', text: todo.abteilung })
+        : null,
+    ]),
+  ]);
 
   if (r.hits.length) ziel.append(...r.hits.map(zeile));
   if (r.maybe.length) {

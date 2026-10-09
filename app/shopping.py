@@ -20,6 +20,28 @@ from .llm.base import LLMError
 # bekommt die ersten 60 geprüft - alles andere wäre teuer und unübersichtlich.
 MAX_POSTEN = 60
 
+# Zu jedem Treffer die Abteilung nennen zu müssen, zwingt das Modell zu einer
+# Einzelentscheidung je Posten. Ohne das füllt es die beiden Listen einfach
+# auf - ein Akkuschrauber landet dann in der Drogerie, weil ihn nichts
+# ausdrücklich ausschließt. Die Abteilung hilft nebenbei im Laden beim Suchen.
+POSTEN_LISTE = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "nr": {"type": "integer", "description": "Die Nummer des Postens."},
+            "abteilung": {
+                "type": "string",
+                "description": "In welcher Abteilung dieses Geschäfts der Posten "
+                               "steht. Ein bis drei Wörter, etwa: Haarpflege, "
+                               "Babybedarf, Schrauben, Molkereiprodukte.",
+            },
+        },
+        "required": ["nr", "abteilung"],
+        "additionalProperties": False,
+    },
+}
+
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -31,16 +53,15 @@ SCHEMA = {
                            "schreibe 'unbekannt'.",
         },
         "posten": {
-            "type": "array",
-            "items": {"type": "integer"},
-            "description": "Die Nummern der Posten, die es in diesem Geschäft "
-                           "mit hoher Wahrscheinlichkeit gibt. Leer, wenn keiner passt.",
+            **POSTEN_LISTE,
+            "description": "Nur Posten, für die man dieses Geschäft tatsächlich "
+                           "aufsucht. Meist sind das wenige oder gar keine.",
         },
         "unsicher": {
-            "type": "array",
-            "items": {"type": "integer"},
-            "description": "Nummern von Posten, die es dort geben könnte, aber "
-                           "nicht sicher. Leer lassen, wenn es keine gibt.",
+            **POSTEN_LISTE,
+            "description": "Nur Posten, bei denen es wirklich an der Filialgröße "
+                           "hängt. Keine Ablage für Zweifelsfälle - im Zweifel "
+                           "ganz weglassen.",
         },
         "hinweis": {
             "type": "string",
@@ -55,17 +76,33 @@ SCHEMA = {
 SYSTEM = """Du hilfst beim Einkaufen. Jemand steht in einem Geschäft und will \
 wissen, welche Posten von seinen Einkaufszetteln er dort gleich mitnehmen kann.
 
+Die wichtigste Regel: Die meisten Posten gehören in KEINE der beiden Listen.
+Nichts zurückzugeben ist der Normalfall und völlig richtig. Eine lange Liste
+ist fast immer falsch.
+
+Der Maßstab ist nicht, ob es den Posten dort theoretisch gibt, sondern ob ein
+normaler Mensch ihn dort kaufen würde. Ein Baumarkt führt Arbeitsjacken - eine
+Chino kauft dort trotzdem niemand. Eine große Drogerie führt Puddingpulver -
+zum Einkaufen geht man deshalb nicht dorthin.
+
 - Antworte auf Deutsch.
-- Du bekommst nummerierte Posten. Gib nur Nummern zurück, keine Namen.
-- `posten`: was es in diesem Geschäft mit hoher Wahrscheinlichkeit gibt.
-- `unsicher`: was es dort geben könnte, aber je nach Filiale oder Größe nicht
-  sicher. Lieber hier einsortieren als falsche Sicherheit vorgaukeln.
+- Gib je Treffer die Nummer und die Abteilung an, in der er dort steht. Kannst
+  du keine plausible Abteilung benennen, gehört der Posten nicht in die Liste.
+- `posten`: wofür man dieses Geschäft tatsächlich aufsucht.
+- `unsicher`: nur, wenn es wirklich an der Filialgröße hängt. Keine Ablage für
+  Zweifelsfälle - im Zweifel ganz weglassen.
 - Deutsche Ketten kennst du: dm, Rossmann, Müller und Budnikowsky (Budni) sind
   Drogerien; Edeka, Rewe, Aldi, Lidl, Penny und Kaufland Supermärkte; Obi,
   Bauhaus, Hornbach und Toom Baumärkte; Saturn und MediaMarkt Elektronik.
-- Drogerien führen auch Grundnahrungsmittel und Babybedarf, aber keine frische
-  Ware. Supermärkte führen ein kleines Drogeriesortiment. Das darf in
-  `unsicher`.
+- Eine Drogerie heißt: Körperpflege, Kosmetik, Wasch- und Putzmittel,
+  Babybedarf, Hygiene, freiverkäufliche Arznei. NICHT: Kleidung, Schuhe,
+  Werkzeug, Baumaterial, Technik, Möbel, frische Lebensmittel. Haltbare
+  Lebensmittel und Süßes führen Drogerien zwar, aber dafür geht man nicht hin -
+  weglassen.
+- Ein Baumarkt heißt: Werkzeug, Material, Farbe, Garten, Sanitär, Elektroteile.
+  NICHT: Alltagskleidung, Lebensmittel, Heimtextilien, Decken. Arbeitskleidung,
+  Regenzeug und Gummistiefel führt ein Baumarkt zwar - dafür geht man aber
+  nicht hin. Solche Posten gehören nach `unsicher`, nie nach `posten`.
 - Kennst du das Geschäft nicht, setze `laden` auf "unbekannt", lass beide
   Listen leer und sag es im Hinweis. Nicht raten.
 - Der Hinweis bleibt leer, wenn es nichts zu sagen gibt."""

@@ -269,13 +269,22 @@ def _shopping_here(payload: dict) -> dict:
     except Exception as exc:
         raise ApiError(str(exc), 502) from exc
 
-    def aufloesen(nummern):
-        """Nummern zurück in Einträge übersetzen - das Modell liefert nur Zahlen."""
+    def aufloesen(eintraege):
+        """Nummern zurück in Einträge übersetzen.
+
+        Das Modell liefert nur Nummern und eine Abteilung - nie Namen oder IDs.
+        Was es sich an Nummern ausdenkt, fällt hier schlicht durch.
+        """
         raus, gesehen = [], set()
-        for n in nummern or []:
-            if isinstance(n, int) and 1 <= n <= len(geprueft) and n not in gesehen:
-                gesehen.add(n)
-                raus.append(geprueft[n - 1])
+        for eintrag in eintraege or []:
+            if not isinstance(eintrag, dict):
+                continue
+            n = eintrag.get("nr")
+            if not isinstance(n, int) or not (1 <= n <= len(geprueft)) or n in gesehen:
+                continue
+            gesehen.add(n)
+            raus.append({**geprueft[n - 1],
+                         "abteilung": str(eintrag.get("abteilung") or "")[:40]})
         return raus
 
     treffer = aufloesen(ergebnis.get("posten"))
