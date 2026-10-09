@@ -17,6 +17,7 @@ from . import auth, calendar_ics, classify, config, db, recipe, store, telegram
 from .constants import (
     DEFAULT_HORIZON,
     EFFORTS,
+    iso_date,
     LIST_KINDS,
     HORIZONS,
     PRIORITIES,
@@ -24,6 +25,7 @@ from .constants import (
     clamp_due_date,
     next_occurrence,
     snap_effort,
+    today,
 )
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -388,6 +390,10 @@ def _patch_todo(todo_id: str, payload: dict) -> dict:
         fields["minutes"] = snap_effort(payload["minutes"])
     if "dueDate" in payload:
         fields["dueDate"] = payload["dueDate"] or None
+    # Wird eine Aufgabe nachträglich zur wiederkehrenden gemacht und hat noch
+    # kein Datum, ist sie ab heute dran - sonst taucht sie nirgends auf.
+    if fields.get("repeat") and not (fields.get("dueDate") or todo.get("dueDate")):
+        fields["dueDate"] = iso_date(today())
     if fields.get("priority") not in PRIORITIES:
         fields.pop("priority", None)
     if fields.get("status") not in ("inbox", "open", "done"):

@@ -4,6 +4,7 @@
   --bg: #f6f5f2;
   --surface: #ffffff;
   --surface-2: #f0efeb;
+  --surface-2-klar: rgba(240, 239, 235, 0);
   --border: #e0ded7;
   --border-strong: #c9c5ba;
   --text: #24221e;
@@ -27,6 +28,7 @@
     --bg: #17171a;
     --surface: #212126;
     --surface-2: #2a2a30;
+    --surface-2-klar: rgba(42, 42, 48, 0);
     --border: #35353d;
     --border-strong: #4d4d58;
     --text: #eceaea;
@@ -45,6 +47,7 @@
   --bg: #17171a;
   --surface: #212126;
   --surface-2: #2a2a30;
+  --surface-2-klar: rgba(42, 42, 48, 0);
   --border: #35353d;
   --border-strong: #4d4d58;
   --text: #eceaea;
@@ -908,7 +911,7 @@ a.btn { text-decoration: none; display: inline-block; }
 /* Statuszeile */
 .urgent {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 7px;
   margin-bottom: 22px;
 }
@@ -933,6 +936,16 @@ a.btn { text-decoration: none; display: inline-block; }
 .urgent-item.warn .urgent-count { color: var(--warn); }
 .urgent-item.alert { border-color: var(--danger); background: var(--danger-soft); }
 .urgent-item.alert .urgent-count { color: var(--danger); }
+/* „Bald" ist kein Alarm, sondern ein Ausblick - deshalb nur eine kräftigere
+   Umrandung, keine Signalfarbe. Sonst leuchtet die halbe Leiste. */
+.urgent-item.soon { border-color: var(--border-strong); }
+
+/* Wo man gerade ist, wird angezeigt - die Leiste steht auf jeder Seite,
+   sonst weiß man nach dem Tippen nicht, welche Auswahl gerade gilt. */
+.urgent-item.is-current {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  font-weight: 600;
+}
 
 /* Bereichskacheln */
 .big-tiles {
@@ -1015,8 +1028,82 @@ a.btn { text-decoration: none; display: inline-block; }
   .big-tiles { grid-template-columns: repeat(2, 1fr); gap: 7px; }
   .big-tile { min-height: 74px; padding: 10px 11px; }
   .big-name { font-size: 13px; }
-  .urgent-item { flex-direction: column; gap: 1px; justify-content: center; min-height: 54px; }
-  .urgent-count { font-size: 19px; }
+  /* Vier statt drei Kacheln: etwas kleinere Schrift, damit „überfällig"
+     auch auf einem 320px breiten Telefon in eine Zeile passt. */
+  .urgent-item { flex-direction: column; gap: 1px; justify-content: center;
+                 min-height: 54px; font-size: 11.5px; padding: 7px 3px; }
+  .urgent-count { font-size: 18px; }
+  .urgent { gap: 5px; }
+}
+
+/* Tagesstreifen: das Wichtigste im Klartext, direkt unter den Kacheln.
+   Bewusst ohne Karten-Optik - sonst konkurriert er mit den Listen darunter
+   um Aufmerksamkeit, obwohl er nur eine Erinnerung sein soll. */
+.heute-streifen {
+  margin: -10px 0 20px;
+  padding: 9px 11px 5px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.heute-kopf {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.heute-kopf .count {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--surface-2);
+}
+.heute-zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.check-klein { width: 19px; height: 19px; flex: 0 0 auto; font-size: 11px; }
+.heute-titel {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  /* Lange Titel kuerzen statt umbrechen - der Streifen soll schmal bleiben. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.heute-wer { flex: 0 0 auto; font-size: 13px; }
+.heute-mehr {
+  margin-top: 2px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .heute-streifen { margin: -8px 0 16px; }
+  .heute-zeile { padding: 5px 0; }
+  .check-klein { width: 22px; height: 22px; }
+  .heute-titel { font-size: 14.5px; }
 }
 
 /* Hinweis, solange nur der gepufferte Stand angezeigt wird */
@@ -1087,6 +1174,9 @@ a.btn { text-decoration: none; display: inline-block; }
 .quick-add input { flex: 1; min-width: 0; }
 .quick-add .quick-person { flex: 0 0 auto; width: auto; max-width: 42%; }
 .quick-add .btn { flex: none; min-width: 46px; font-size: 19px; line-height: 1; }
+/* Der Nebenknopf ist bewusst zurückhaltender als das grüne Plus: Er ist
+   der Umweg für den Fall, dass man gleich noch etwas vergeben will. */
+.quick-add .quick-more { font-size: 14px; min-width: 42px; color: var(--muted); }
 
 @media (max-width: 640px) {
   .crumbs { font-size: 13.5px; gap: 5px; }
@@ -1428,6 +1518,44 @@ h1 > #home-link:hover { color: var(--accent); }
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* Zusammengeklappt sind drei Zeilen zu sehen. Die Hoehe haengt an der
+   Zeilenhoehe des Textes, damit nie eine Zeile halb angeschnitten wird. */
+.recipe-collapse {
+  position: relative;
+  max-height: calc(10px + 3 * 1.5 * 13.5px + 22px);
+  overflow: hidden;
+}
+.recipe-collapse.offen { max-height: none; }
+
+/* Der Verlauf endet auf der Farbe des Kastens darunter, sonst klebt eine
+   graue Kante im Text. */
+.recipe-collapse::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 42px;
+  border-radius: 0 0 9px 9px;
+  background: linear-gradient(to bottom,
+              var(--surface-2-klar), var(--surface-2));
+  pointer-events: none;
+}
+.recipe-collapse.offen::after { display: none; }
+
+.recipe-more {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
 @media (max-width: 640px) {

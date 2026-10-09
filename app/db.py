@@ -11,7 +11,7 @@ import json
 import uuid
 
 from . import store
-from .constants import LIST_KINDS, now_ts, slugify
+from .constants import LIST_KINDS, iso_date, now_ts, slugify, today
 
 # DOUBLE PRECISION statt REAL und ON CONFLICT statt INSERT OR IGNORE: beides
 # verstehen SQLite und Postgres, sodass es nur ein Schema gibt.
@@ -349,6 +349,15 @@ def _migrate_data() -> None:
                          "geburtstag", "abholen", "bringen"], ensure_ascii=False),
              "appointments", (row["m"] or 0) + 1, now_ts()))
 
+    # Wiederkehrende Aufgaben ohne Datum nachträglich auf heute setzen -
+    # sie standen bisher in keiner einzigen Terminansicht. Läuft bei jedem
+    # Start, findet danach aber nichts mehr: neue bekommen ihr Datum schon
+    # beim Anlegen.
+    store.execute(
+        "UPDATE todos SET due_date=? WHERE status='open'"
+        " AND repeat_rule <> '' AND (due_date IS NULL OR due_date='')",
+        (iso_date(today()),))
+
     # Eine Liste für Bücher, Filme und Podcasts, falls noch keine da ist.
     if not store.one("SELECT 1 AS x FROM lists WHERE kind='media' LIMIT 1"):
         row = store.one("SELECT COALESCE(MAX(sort), 0) AS m FROM lists")
@@ -595,6 +604,14 @@ def get_todo(todo_id: str) -> dict | None:
 
 def create_todo(data: dict) -> dict:
     todo_id = data.get("id") or uuid.uuid4().hex[:12]
+
+    # Eine wiederkehrende Aufgabe ohne Datum ist heute fällig. Ohne diese
+    # Regel verschwindet sie: „heute" und „bald" suchen nach einem Datum,
+    # und wer „Tabletten nehmen, täglich" einwirft, nennt selten eines.
+    # Der jeweils nächste Termin entsteht ohnehin erst beim Abhaken.
+    faellig = data.get("dueDate")
+    if not faellig and (data.get("repeat") or ""):
+        faellig = iso_date(today())
     store.execute(
         "INSERT INTO todos (id, title, raw_input, note, list_id, assignee_id, horizon,"
         " due_date, priority, status, confidence, question, tags, engine, suggestion,"
@@ -606,7 +623,7 @@ def create_todo(data: dict) -> dict:
             (data.get("title") or "").strip() or "Ohne Titel",
             data.get("rawInput", ""), data.get("note", ""),
             data.get("listId"), data.get("assigneeId"),
-            data.get("horizon", "soon"), data.get("dueDate"),
+            data.get("horizon", "soon"), faellig,
             data.get("priority", "normal"), data.get("status", "open"),
             float(data.get("confidence", 0) or 0), data.get("question", ""),
             json.dumps(data.get("tags", []), ensure_ascii=False),

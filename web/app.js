@@ -14,6 +14,7 @@ const state = {
   statsRange: 7,        // Tage; 0 = alles
   statsMeasure: 'time', // 'time' oder 'count'
   focus: null,          // vom Start aus geöffnete Unteransicht
+  editing: null,        // id des Todos, das gerade bearbeitet wird
   weekOffset: 0,        // 0 = laufende Woche
 };
 
@@ -491,8 +492,22 @@ const isTask = todo => {
   return bereich ? bereich.dated : true;
 };
 
+/* „Bald" heißt: ab morgen, innerhalb der Woche. Heute Fälliges bleibt
+   draußen, sonst stünde dieselbe Aufgabe in zwei Kacheln und die Zahlen
+   ergäben zusammen mehr, als es Aufgaben gibt. */
+const baldTodos = () => openTodos().filter(t => {
+  const tage = daysUntil(t.dueDate);
+  return isTask(t) && tage !== null && tage >= 1 && tage <= SOON_DAYS;
+});
+
+/* Genau heute - Liegengebliebenes zählt unter „überfällig".
+
+   Vorher galt hier „heute oder früher". Neben einer eigenen Kachel für
+   Überfälliges hieß das: Dieselbe Aufgabe wurde zweimal gezählt, und die
+   Summe der vier Zahlen war größer als die Zahl der Aufgaben. Jetzt teilen
+   überfällig / heute / bald die Aufgaben sauber untereinander auf. */
 const todayTodos = () => openTodos().filter(
-  t => isTask(t) && (daysUntil(t.dueDate) ?? 99) <= 0);
+  t => isTask(t) && daysUntil(t.dueDate) === 0);
 const unassignedTodos = () => openTodos().filter(t => isTask(t) && !t.assigneeId);
 const repeatingTodos = () => openTodos().filter(t => t.repeat);
 const kindTodos = kind => openTodos().filter(t => listKind(t.listId) === kind);
@@ -556,7 +571,11 @@ function sumMinutes(todos) {
 /* Was eine vom Start geöffnete Unteransicht zeigt. */
 const FOCUS_VIEWS = {
   today: { title: 'Heute fällig', get: todayTodos },
-  soon: { title: 'Die nächsten Tage', get: () => soonTodos().filter(isTask) },
+  soon: {
+    title: 'Die nächsten Tage',
+    hint: 'Ab morgen bis in einer Woche — was sich vorziehen lässt, wenn gerade Luft ist.',
+    get: baldTodos,
+  },
   overdue: { title: 'Überfällig', get: () => overdueTodos().filter(isTask) },
   inbox: { title: 'Kurz bestätigen', get: inboxTodos },
   unassigned: {
@@ -606,9 +625,12 @@ function metaChips(todo) {
   return el('div', { class: 'meta' }, chips);
 }
 
-function todoCard(todo, { overdue = false } = {}) {
+/* Der Haken zum Abhaken. Eigener Baustein, weil er in der Karte und im
+   Tagesstreifen oben vorkommt - zwei Umsetzungen desselben Knopfes würden
+   garantiert auseinanderlaufen. */
+function hakenKnopf(todo, klasse = 'check') {
   const check = el('button', {
-    class: 'check',
+    class: klasse,
     title: 'Erledigt',
     'aria-label': `„${todo.title}“ als erledigt markieren`,
     text: '✓',
@@ -634,6 +656,19 @@ function todoCard(todo, { overdue = false } = {}) {
       } catch (error) { toast(error.message, true); check.disabled = false; }
     },
   });
+  return check;
+}
+
+function todoCard(todo, { overdue = false } = {}) {
+  /* Wird dieser Eintrag gerade bearbeitet, steht hier die Bearbeitungskarte -
+     an genau derselben Stelle. Vorher wurde sie oben an die Ansicht gehängt:
+     Die Seite sprang nach oben, der Eintrag blieb unten stehen, und jeder
+     weitere Druck auf ⋯ erzeugte eine weitere Karte. */
+  if (state.editing === todo.id) {
+    return reviewCard({ ...todo, question: '', suggestion: {} }, { inline: true });
+  }
+
+  const check = hakenKnopf(todo);
 
   const body = el('div', { class: 'todo-body' }, [
     el('div', { class: 'todo-title', text: todo.title }),
@@ -650,7 +685,8 @@ function todoCard(todo, { overdue = false } = {}) {
 
   const edit = el('button', {
     class: 'btn btn-ghost btn-sm', text: '⋯', title: 'Bearbeiten',
-    onclick: () => openEditor(todo),
+    'aria-expanded': 'false',
+    onclick: () => { state.editing = todo.id; render(); },
   });
 
   // Bei Essensideen gibt es zusätzlich den Rezeptvorschlag.
@@ -754,14 +790,35 @@ function recipePanel(todo) {
       knopf,
     ]),
     todo.detail
-      ? el('pre', { class: 'recipe-text', text: todo.detail })
+      ? rezeptText(todo.detail)
       : el('p', { class: 'hint', style: 'margin:8px 0 0',
           text: 'Wünsche sind freiwillig — ohne Angabe kommt ein alltagstaugliches Rezept.' }),
   ]);
 }
 
+/* Ein Rezept ist lang. Steht es ganz da, schiebt es alles andere aus dem
+   Bild - dabei will man beim Durchsehen der Essensideen nur wissen, was es
+   ist. Also die ersten Zeilen zeigen, der Rest auf Klick. Der weiche
+   Übergang nach unten sagt dabei deutlicher als jeder Pfeil, dass da noch
+   mehr kommt. */
+function rezeptText(inhalt) {
+  const text = el('pre', { class: 'recipe-text', text: inhalt });
+  const huelle = el('div', { class: 'recipe-collapse' }, text);
+  const mehr = el('button', {
+    class: 'recipe-more', type: 'button', text: '▾ Ganzes Rezept',
+    'aria-expanded': 'false',
+    onclick: () => {
+      const offen = huelle.classList.toggle('offen');
+      mehr.textContent = offen ? '▴ Einklappen' : '▾ Ganzes Rezept';
+      mehr.setAttribute('aria-expanded', String(offen));
+      if (!offen) huelle.scrollIntoView({ block: 'nearest' });
+    },
+  });
+  return el('div', {}, [huelle, mehr]);
+}
+
 /* Karte für einen Eintrag, bei dem sich das Modell nicht sicher war. */
-function reviewCard(todo) {
+function reviewCard(todo, { inline = false } = {}) {
   const suggestion = todo.suggestion || {};
   const wantsNewList = Boolean(suggestion.newList);
 
@@ -889,19 +946,29 @@ function reviewCard(todo) {
     }
     try {
       await api(`/api/todos/${todo.id}/confirm`, 'POST', payload);
-      toast('Einsortiert.');
+      toast(inline ? 'Gespeichert.' : 'Einsortiert.');
+      state.editing = null;
       await refresh();
     } catch (error) { toast(error.message, true); confirmBtn.disabled = false; }
   });
 
   const deleteBtn = el('button', {
-    class: 'btn btn-ghost btn-sm', text: 'Verwerfen',
+    class: 'btn btn-ghost btn-sm', text: inline ? 'Löschen' : 'Verwerfen',
     onclick: async () => {
+      if (inline && !confirm(`„${todo.title}“ wirklich löschen?`)) return;
       try {
         await api(`/api/todos/${todo.id}`, 'DELETE');
+        state.editing = null;
         await refresh();
       } catch (error) { toast(error.message, true); }
     },
+  });
+
+  // Beim nachträglichen Bearbeiten braucht es einen Weg zurück, ohne zu
+  // speichern - und die Sicherheitsangabe der Einordnung ist dann vorbei.
+  const abbrechen = el('button', {
+    class: 'btn btn-ghost btn-sm', text: 'Abbrechen',
+    onclick: () => { state.editing = null; render(); },
   });
 
   const card = el('div', { class: 'card review' }, [
@@ -925,8 +992,9 @@ function reviewCard(todo) {
     ]),
     el('div', { class: 'actions' }, [
       confirmBtn,
+      inline ? abbrechen : null,
       el('span', { class: 'spacer' }),
-      el('span', {
+      inline ? null : el('span', {
         class: 'capture-hint',
         text: `${Math.round((todo.confidence || 0) * 100)} % sicher · ${engineName(todo.engine)}`,
       }),
@@ -936,15 +1004,6 @@ function reviewCard(todo) {
   syncNewList();
   syncFelder();
   return card;
-}
-
-/* Nachträgliches Bearbeiten eines bereits einsortierten Todos. */
-function openEditor(todo) {
-  const card = reviewCard({ ...todo, question: '', suggestion: {} });
-  card.classList.remove('review');
-  const container = document.getElementById('view');
-  container.prepend(card);
-  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /* ---------- Ansichten ---------- */
@@ -977,6 +1036,32 @@ function viewLists() {
     ]);
   }
   const groups = el('div', {});
+
+  /* Zwei Gruppen vorweg, quer über alle Listen: was heute dran ist und was
+     in den nächsten Tagen kommt. Nach Listen sortiert zu sein ist richtig,
+     wenn man eine Liste abarbeitet - aber nicht, wenn man wissen will, was
+     heute ansteht. Dafür müsste man sonst jede Gruppe einzeln durchsehen. */
+  const zeichneQuer = t => todoCard(t, { overdue: (daysUntil(t.dueDate) ?? 99) < 0 });
+  const nachDatum = (a, b) => (a.dueDate || '').localeCompare(b.dueDate || '');
+  for (const [titel, eintraege, leerText] of [
+    ['🔴 Überfällig', overdueTodos().filter(isTask).sort(nachDatum), ''],
+    ['📌 Heute', todayTodos().sort(nachDatum), ''],
+    ['🕒 Bald', baldTodos().sort(nachDatum), ''],
+  ]) {
+    if (!eintraege.length) continue;
+    groups.append(el('section', { class: 'list-group' }, [
+      el('div', { class: 'list-head' }, [
+        titel,
+        el('span', { class: 'count', text: String(eintraege.length) }),
+      ]),
+      ...eintraege.map(zeichneQuer),
+    ]));
+  }
+  if (groups.childElementCount) {
+    groups.append(el('div', { class: 'kind-divider' },
+      el('span', { text: 'Nach Listen' })));
+  }
+
   let letzteArt = null;
   for (const list of state.lists.slice()
       .filter(l => l.inOverview !== false)
@@ -1162,13 +1247,19 @@ function quickAdd(listId) {
       ])
     : null;
 
-  const submit = async (event) => {
-    event.preventDefault();
+  /* `weiter` heißt: nach dem Anlegen gleich die Bearbeitungskarte öffnen.
+
+     Schnelles Eintippen und das Vergeben von Frist, Dauer und Wichtigkeit
+     sind zwei verschiedene Bedürfnisse. Alle Felder dauerhaft anzuzeigen
+     macht das Eintippen schwerfällig; sie wegzulassen heißt, erst anlegen
+     und dann suchen zu müssen. Der zweite Knopf erledigt beides in einem
+     Zug - und nur, wenn man ihn drückt. */
+  const anlegen = async (weiter) => {
     const title = input.value.trim();
     if (!title) return;
     input.disabled = true;
     try {
-      await api('/api/todos', 'POST', {
+      const antwort = await api('/api/todos', 'POST', {
         title, listId,
         assigneeId: personSelect ? personSelect.value : '',
         dueDate: dateInput ? dateInput.value : '',
@@ -1176,22 +1267,34 @@ function quickAdd(listId) {
       });
       if (dateInput) dateInput.value = '';
       input.value = '';
+      if (weiter && antwort && antwort.todo) state.editing = antwort.todo.id;
       await refresh();
       // Nach dem Neuzeichnen weitertippen können - beim Einkaufszettel
       // schreibt man selten nur eine Zeile.
       const again = document.getElementById('quick-add-input');
-      if (again) again.focus();
+      if (again && !weiter) again.focus();
     } catch (error) {
       toast(error.message, true);
       input.disabled = false;
     }
   };
 
-  return el('form', { class: 'quick-add', onsubmit: submit }, [
+  return el('form', {
+    class: 'quick-add',
+    onsubmit: (event) => { event.preventDefault(); anlegen(false); },
+  }, [
     input,
     dateInput,
     personSelect,
     el('button', { class: 'btn btn-primary btn-sm', type: 'submit', text: '+' }),
+    // Nur dort, wo es etwas zu vergeben gibt: ein Wunschzettel kennt weder
+    // Frist noch Dauer.
+    dated ? el('button', {
+      class: 'btn btn-sm quick-more', type: 'button', text: '＋⋯',
+      title: 'Anlegen und gleich Frist, Dauer und Wichtigkeit vergeben',
+      'aria-label': 'Anlegen und bearbeiten',
+      onclick: () => anlegen(true),
+    }) : null,
   ]);
 }
 
@@ -1402,38 +1505,95 @@ function areaLists(areaId) {
   return state.lists.filter(l => l.kind === areaId);
 }
 
+/* Was drängt: überfällig, heute, zu prüfen.
+
+   Steht über jeder Ansicht, nicht nur über der Startseite. Es ist die
+   Abkürzung zu dem, was heute wirklich ansteht - und die taugt nur, wenn
+   sie da ist, wo man gerade ist. Sonst klickt man sich erst zurück nach
+   Hause, um zu sehen, was los ist.
+
+   Nicht angeheftet: drei Kacheln plus die feste Leiste unten fräßen am
+   Telefon zu viel Bildschirm. Sie stehen oben in der Ansicht, also immer
+   einen Wisch nach oben entfernt. */
+function urgentBar() {
+  const heute = todayTodos();
+  const ueberfaellig = overdueTodos().filter(isTask);
+  const posteingang = inboxTodos();
+  const offen = state.focus ? state.focus.kind : '';
+
+  const knopf = (kind, anzahl, farbe, beschriftung) => el('button', {
+    class: 'urgent-item' + (anzahl ? ' ' + farbe : '')
+         + (offen === kind ? ' is-current' : ''),
+    type: 'button',
+    'aria-current': offen === kind ? 'true' : null,
+    onclick: () => openFocus(kind),
+  }, [
+    el('span', { class: 'urgent-count', text: String(anzahl) }),
+    el('span', { text: beschriftung }),
+  ]);
+
+  return el('div', { class: 'urgent' }, [
+    knopf('overdue', ueberfaellig.length, 'alert', 'überfällig'),
+    knopf('today', heute.length, 'accent', 'heute'),
+    knopf('soon', baldTodos().length, 'soon', 'bald'),
+    knopf('inbox', posteingang.length, 'warn', 'zu prüfen'),
+  ]);
+}
+
+/* Was heute wirklich ansteht - nicht als Zahl, sondern beim Namen.
+
+   Die Kacheln darüber sagen „2 heute". Das ist eine Zahl, kein Plan: Man
+   muss erst tippen, um zu erfahren, was gemeint ist. Dieser Streifen nennt
+   die Aufgaben direkt und lässt sie an Ort und Stelle abhaken. Er ist
+   absichtlich schmal - eine Zeile je Aufgabe, kein Kästchen drumherum.
+
+   Liegengebliebenes steht mit dabei: Was gestern fällig war, ist heute zu
+   tun. Die rote Angabe dahinter sagt, wie lange es schon wartet. */
+const STREIFEN_MAX = 5;
+
+function heuteStreifen() {
+  const nachDatum = (a, b) => (a.dueDate || '').localeCompare(b.dueDate || '');
+  const dran = [...overdueTodos().filter(isTask).sort(nachDatum),
+                ...todayTodos().sort(nachDatum)];
+  if (!dran.length) return null;
+
+  const zeilen = dran.slice(0, STREIFEN_MAX).map(todo => {
+    const tage = daysUntil(todo.dueDate);
+    const person = personById(todo.assigneeId);
+    return el('div', { class: 'heute-zeile' }, [
+      hakenKnopf(todo, 'check check-klein'),
+      el('button', {
+        class: 'heute-titel', type: 'button', title: 'Bearbeiten',
+        onclick: () => { state.editing = todo.id; openFocus('today'); },
+      }, todo.title),
+      person ? el('span', { class: 'heute-wer', text: person.emoji }) : null,
+      tage < 0
+        ? el('span', { class: 'chip due-over', text: formatDue(todo.dueDate) })
+        : null,
+    ]);
+  });
+
+  if (dran.length > STREIFEN_MAX) {
+    zeilen.push(el('button', {
+      class: 'heute-mehr', type: 'button',
+      text: `+ ${dran.length - STREIFEN_MAX} weitere`,
+      onclick: () => openFocus('today'),
+    }));
+  }
+
+  return el('div', { class: 'heute-streifen' }, [
+    el('div', { class: 'heute-kopf' }, [
+      el('span', { text: 'Jetzt dran' }),
+      el('span', { class: 'count', text: String(dran.length) }),
+    ]),
+    ...zeilen,
+  ]);
+}
+
 function viewStart() {
   if (state.focus) return viewFocus();
 
   const view = el('div', { class: 'home' });
-  const today = todayTodos();
-  const overdue = overdueTodos().filter(isTask);
-  const inbox = inboxTodos();
-
-  /* Was drängt - schmal, färbt sich nur bei Bedarf. */
-  view.append(el('div', { class: 'urgent' }, [
-    el('button', {
-      class: 'urgent-item' + (overdue.length ? ' alert' : ''), type: 'button',
-      onclick: () => openFocus('overdue'),
-    }, [
-      el('span', { class: 'urgent-count', text: String(overdue.length) }),
-      el('span', { text: 'überfällig' }),
-    ]),
-    el('button', {
-      class: 'urgent-item' + (today.length ? ' accent' : ''), type: 'button',
-      onclick: () => openFocus('today'),
-    }, [
-      el('span', { class: 'urgent-count', text: String(today.length) }),
-      el('span', { text: 'heute' }),
-    ]),
-    el('button', {
-      class: 'urgent-item' + (inbox.length ? ' warn' : ''), type: 'button',
-      onclick: () => openFocus('inbox'),
-    }, [
-      el('span', { class: 'urgent-count', text: String(inbox.length) }),
-      el('span', { text: 'zu prüfen' }),
-    ]),
-  ]));
 
   /* Notizen, die heute dran sind - direkt unter dem, was drängt. */
   const notizen = todayNotes();
@@ -2414,6 +2574,9 @@ function render() {
       + 'Abhaken und Ändern geht gleich wieder.',
     ]));
   }
+  view.append(urgentBar());
+  const streifen = heuteStreifen();
+  if (streifen) view.append(streifen);
   view.append((VIEWS[state.tab] || viewStart)());
 }
 
