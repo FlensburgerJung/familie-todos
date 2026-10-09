@@ -68,6 +68,11 @@ Im Terminal stehen dann zwei Adressen: eine für diesen Mac, eine fürs WLAN.
 Die WLAN-Adresse (`http://192.168.…:8765`) in Safari öffnen →
 Teilen → **Zum Home-Bildschirm**. Danach startet sie wie eine App.
 
+Auf Android geht das im Heimnetz nur eingeschränkt: Chrome bietet die
+richtige Installation erst über eine `https://`-Adresse an. Zuhause bleibt
+es deshalb bei einem Lesezeichen — die volle Einrichtung steht weiter unten
+unter [Auf dem Android-Handy](#auf-dem-android-handy) und braucht Weg B.
+
 ### 4. Familie anlegen
 
 In der App unter **Einstellungen** die Personen eintragen und ihnen Kompetenzen
@@ -153,6 +158,56 @@ Die Adresse steht unter **Einstellungen → Kalender** — online hängt ein
 Schlüssel daran (`?token=…`), weil Kalender-Programme keine Anmeldung
 mitschicken können. Wer die Adresse hat, sieht die Termine: also nur in der
 Familie weitergeben.
+
+---
+
+## Auf dem Android-Handy
+
+Drei Dinge, die unabhängig voneinander nützlich sind. Alle brauchen die
+`https://…onrender.com`-Adresse, nicht die WLAN-Adresse von zuhause: Chrome
+behandelt nur verschlüsselte Seiten als installierbare App.
+
+### 1. Als App einrichten
+
+1. Die Render-Adresse in **Chrome** öffnen und anmelden
+2. Menü (⋮ oben rechts) → **App installieren** bzw. *Zum Startbildschirm
+   hinzufügen*
+3. Bestätigen
+
+Danach liegt sie mit eigenem Symbol auf dem Startbildschirm und startet ohne
+Browserleiste. Das Passwort bleibt 90 Tage gespeichert — es wird also nicht
+bei jedem Öffnen gefragt.
+
+> Kommt der Punkt „App installieren" nicht im Menü, war die Seite noch nicht
+> fertig geladen. Einmal neu laden und erneut ins Menü schauen.
+
+### 2. Aus anderen Apps hineinwerfen
+
+Das ist der eigentliche Gewinn auf Android. Nach der Installation taucht
+**Familie ToDos** im normalen Teilen-Menü auf — überall, wo es einen
+Teilen-Knopf gibt:
+
+- eine WhatsApp-Nachricht von der Kita → teilen → landet im Einwurffeld
+- eine Seite im Browser → teilen → der Link steht als Eintrag da
+- markierter Text in einer Mail → teilen
+
+Der geteilte Text steht dann schon im Feld, man tippt nur noch auf
+**Rein damit**. Das funktioniert auch, wenn der Dienst gerade schläft: Der
+Eintrag wird gemerkt und nachgereicht.
+
+### 3. Verknüpfung „Einwerfen"
+
+Das App-Symbol **lange gedrückt halten** — es erscheint der Punkt
+**Einwerfen**. Der springt direkt ins Eingabefeld, ohne Umweg über die
+Startseite. Diese Verknüpfung lässt sich auch einzeln auf den
+Startbildschirm ziehen.
+
+### Für die ganze Familie
+
+Jedes Handy wird einmal so eingerichtet, und jeder braucht das
+Familienpasswort. Wer gar nichts installieren will, nimmt stattdessen den
+[Telegram-Bot](#einwerfen-per-telegram-optional) — dort reicht eine
+Nachricht im Chat.
 
 ---
 
