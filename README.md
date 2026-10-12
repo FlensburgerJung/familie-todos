@@ -217,6 +217,34 @@ angetippt hat.
   „‹ Start" bzw. „‹ Todos" führt zurück. Einstellungen liegen bewusst
   außerhalb, im Tab „Mehr".
 
+### Wann ein Modell gefragt wird — und wann nicht
+
+Jeder Modellaufruf kostet. Deshalb gilt eine einfache Regel:
+
+| Eingabe | Modell? |
+|---|---|
+| **Rein damit** ohne gewählte Liste | **ja** — nur hier muss jemand entscheiden |
+| Knöpfe 📋 ToDo · 🛒 Einkauf · 🎁 Wunsch · 🎬 Merken | nein |
+| Liste im Auswahlfeld gewählt | nein |
+| Direkt in einer Liste eingetragen | nein |
+
+Die Knöpfe nennen einen Bereich, und daraus leitet die App die Liste selbst
+ab: die erste des Bereichs — täglicher Bedarf beim Einkauf, Haushalt bei den
+Todos. Ist zusätzlich eine Person gewählt und gibt es deren persönliche
+Liste, dann die. „Turnbeutel" mit 🛒 und *Thilo* landet also auf *Thilo
+persönlich*, ohne dass jemand gefragt werden muss.
+
+Ohne Modell heißt nicht ohne Einordnung: Die Stichwortsuche läuft weiter,
+sie kostet nichts. „Müll jeden Montag rausbringen" auf *Haushalt* wird auch
+so als wöchentlich erkannt und mit grober Dauer versehen.
+
+Im Auswahlfeld stehen **Täglicher Bedarf** und **Haushalt** unter *Häufig*
+ganz oben — die beiden braucht man im Alltag am häufigsten.
+
+Auf einem Einkaufszettel wird niemandem etwas zugewiesen: Der Zettel sagt
+schon, um wessen Einkauf es geht, und ein Posten ist keine Aufgabe, die
+jemand übernimmt.
+
 ### Direkt in einer Liste eintragen
 
 Steht man ohnehin schon in der richtigen Liste — etwa im Einkaufszettel oder

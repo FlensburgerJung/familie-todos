@@ -13,8 +13,8 @@ import traceback
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from . import (auth, calendar_ics, classify, config, db, recipe, shopping,
-               store, telegram)
+from . import (auth, calendar_ics, classify, config, db, heuristic, recipe,
+               shopping, store, telegram)
 from .constants import (
     DEFAULT_HORIZON,
     EFFORTS,
@@ -79,6 +79,86 @@ def _state() -> dict:
     }
 
 
+def _standardliste(area_id: str, person_id: str, lists: list[dict]) -> str:
+    """Welche Liste ein Bereichsknopf meint.
+
+    Die Knöpfe „Einkauf", „Wunsch", „Merken" und „ToDo" nennen einen Bereich,
+    keine Liste. Früher musste das Modell entscheiden, welcher der sieben
+    Einkaufszettel gemeint ist - für „Milch" eine teure Frage mit oft
+    schlechter Antwort. Jetzt entscheidet eine Regel:
+
+    Ist eine Person gewählt und gibt es in dem Bereich ihre persönliche Liste
+    (`einkauf-thilo`, `wunschliste-thilo`), dann die. Sonst die erste Liste
+    des Bereichs - und das ist die, die beim Einrichten obenan steht:
+    täglicher Bedarf beim Einkauf, Haushalt bei den Todos.
+    """
+    kandidaten = [entry for entry in lists if entry.get("kind") == area_id]
+    if not kandidaten:
+        return ""
+
+    if person_id:
+        person = db.get_person(person_id) or {}
+        name = (person.get("name") or "").lower()
+        for entry in kandidaten:
+            # Beide Schreibweisen abdecken: die angelegten Zettel heißen
+            # „einkauf-thilo", von Hand angelegte oft „Thilo persönlich".
+            if entry["id"].endswith(f"-{person_id}") or entry["id"].startswith(f"{person_id}-"):
+                return entry["id"]
+            if name and name in entry["name"].lower():
+                return entry["id"]
+
+    return kandidaten[0]["id"]
+
+
+def _ohne_modell(text: str, list_id: str, person_id: str, horizon: str,
+                 lists: list[dict], people: list[dict], cfg: dict,
+                 payload: dict) -> dict:
+    """Einen Eintrag anlegen, ohne ein Sprachmodell zu fragen.
+
+    Die Stichwortsuche läuft hier trotzdem: Sie kostet nichts und erkennt
+    Wiederholung („jeden Montag"), groben Aufwand und Dringlichkeit. Nur die
+    Liste steht eben schon fest.
+    """
+    ziel = db.get_list(list_id) or {}
+    art = ziel.get("kind", "tasks")
+    datiert = db.area_is_dated(art)
+    roh = heuristic.classify(text, horizon, lists, people)
+
+    # Auf einem Einkaufszettel wird niemandem etwas zugewiesen: Der Zettel
+    # selbst sagt schon, um wessen Einkauf es geht, und ein Posten ist keine
+    # Aufgabe, die jemand übernimmt.
+    if art == "shopping":
+        zustaendig = ""
+    elif person_id:
+        zustaendig = person_id
+    elif not datiert:
+        # In einer Sammlung heißt die Person „für wen" - ein im Text genannter
+        # Name ist eine Empfehlung für ihn. Reine Namenssuche, kostet nichts.
+        kleingeschrieben = text.lower()
+        zustaendig = next((p["id"] for p in people
+                           if p["name"].lower() in kleingeschrieben), "")
+    else:
+        zustaendig = roh["assignee"] if cfg.get("auto_assign") == "1" else ""
+
+    todo = db.create_todo({
+        "title": (roh["title"] if datiert else text[:120]),
+        "rawInput": text,
+        "listId": list_id,
+        "assigneeId": zustaendig or None,
+        "horizon": horizon,
+        "dueDate": clamp_due_date(None, horizon) if datiert else None,
+        "priority": roh["priority"] if datiert else "normal",
+        "repeat": roh["repeat"] if datiert else "",
+        "minutes": roh["minutes"] if datiert else 0,
+        "status": "open",
+        "confidence": 1.0,
+        "engine": "manuell",
+        "clientId": payload.get("clientId", ""),
+    })
+    _sync_errand(list_id)
+    return {"todo": todo, "engine": "manuell", "problems": [], "autoFiled": True}
+
+
 def _capture(payload: dict) -> dict:
     text = (payload.get("text") or "").strip()
     if not text:
@@ -98,19 +178,16 @@ def _capture(payload: dict) -> dict:
     cfg = config.load()
     lists, people = db.get_lists(), db.get_people()
 
-    # Ein Knopf wie „Wunsch" sagt die Art, nicht die Liste. Dann kommen nur
-    # Listen dieser Art in Frage - und gibt es davon nur eine, erübrigt sich
-    # der Modellaufruf ganz.
+    # Ein Knopf wie „Wunsch" benennt den Bereich. Daraus wird hier eine
+    # konkrete Liste abgeleitet - damit kostet ein Knopfdruck nie einen
+    # Modellaufruf.
     kind_hint = (payload.get("kind") or "").strip()
     if kind_hint and any(a["id"] == kind_hint for a in db.get_areas()):
-        passende = [entry for entry in lists if entry.get("kind") == kind_hint]
-        if len(passende) == 1:
-            payload = {**payload, "listId": passende[0]["id"]}
-        elif passende:
-            lists = passende
+        ziel = _standardliste(kind_hint, (payload.get("assigneeId") or "").strip(), lists)
+        if ziel:
+            payload = {**payload, "listId": ziel}
 
-    # Eine ausdrückliche Wahl beim Einwerfen schlägt die Einordnung. Dann muss
-    # das Modell nur noch Titel, Dauer und Termin herausarbeiten.
+    # Eine ausdrückliche Wahl beim Einwerfen ersetzt die Einordnung.
     chosen_list = (payload.get("listId") or "").strip()
     chosen_person = (payload.get("assigneeId") or "").strip()
     if chosen_list and not any(entry["id"] == chosen_list for entry in lists):
@@ -118,27 +195,11 @@ def _capture(payload: dict) -> dict:
     if chosen_person and not any(person["id"] == chosen_person for person in people):
         chosen_person = ""
 
-    # Steht die Liste schon fest und ist es eine Merkliste, gibt es nichts zu
-    # entscheiden: Titel ist der Text, Termin und Dauer entfallen ohnehin.
-    target_now = db.get_list(chosen_list) if chosen_list else None
-    if target_now and not db.area_is_dated(target_now.get("kind", "tasks")):
-        # Steht die Liste fest, erübrigt sich der Modellaufruf. Ein im Text
-        # genannter Name soll trotzdem ankommen - "das Buch für Thilo" ist eine
-        # Empfehlung fuer ihn. Reine Namenssuche, kostet nichts.
-        if not chosen_person:
-            kleingeschrieben = text.lower()
-            for person in people:
-                if person["name"].lower() in kleingeschrieben:
-                    chosen_person = person["id"]
-                    break
-
-        todo = db.create_todo({
-            "title": text[:120], "rawInput": text, "listId": chosen_list,
-            "assigneeId": chosen_person or None,
-            "status": "open", "confidence": 1.0, "engine": "manuell",
-            "clientId": payload.get("clientId", ""),
-        })
-        return {"todo": todo, "engine": "manuell", "problems": [], "autoFiled": True}
+    # Steht die Liste fest, gibt es für ein Sprachmodell nichts mehr zu
+    # entscheiden - und damit auch keinen Grund, eines zu bezahlen.
+    if chosen_list:
+        return _ohne_modell(text, chosen_list, chosen_person, horizon,
+                            lists, people, cfg, payload)
 
     result, engine, problems = classify.classify(text, horizon, lists, people, cfg,
                                                  db.get_areas())

@@ -2599,6 +2599,11 @@ function renderHorizons() {
 /* Liste und Person von Hand wählen. Leer gelassen entscheidet die Einordnung -
    das bleibt der Normalfall, die Auswahl ist für die Fälle, in denen man es
    ohnehin schon weiß (Wunschzettel, Einkaufsliste). */
+/* Die zwei Listen, die im Alltag am häufigsten gemeint sind. Stehen vorn im
+   Auswahlfeld, damit man für „Milch" und „Bad putzen" nicht scrollt. Fehlt
+   eine davon (umbenannt, gelöscht), fällt sie hier einfach weg. */
+const HAEUFIGE_LISTEN = ['einkauf', 'haushalt'];
+
 function renderAssign() {
   const listSelect = document.getElementById('capture-list');
   const personSelect = document.getElementById('capture-person');
@@ -2609,6 +2614,26 @@ function renderAssign() {
 
   listSelect.textContent = '';
   listSelect.append(el('option', { value: '', text: '📥 Liste: automatisch' }));
+
+  /* Die beiden häufigsten ganz oben: täglicher Bedarf und Haushalt. Sie
+     stehen weiter unten in ihrer Gruppe noch einmal - wer die Listen
+     durchgeht, soll sie dort nicht vermissen. Zwei Einträge für dieselbe
+     Liste sind das kleinere Übel gegenüber einem langen Scrollweg für das,
+     was man zehnmal am Tag braucht. */
+  const haeufig = HAEUFIGE_LISTEN
+    .map(id => state.lists.find(l => l.id === id))
+    .filter(Boolean);
+  if (haeufig.length) {
+    const oben = el('optgroup', { label: 'Häufig' });
+    for (const list of haeufig) {
+      oben.append(el('option', {
+        value: list.id, text: `${list.emoji} ${list.name}`,
+        selected: list.id === keepList,
+      }));
+    }
+    listSelect.append(oben);
+  }
+
   // Nach Art gruppiert statt alles in einer langen Reihe - der Browser setzt
   // dabei selbst eine Trennlinie mit Überschrift.
   for (const bereich of (state.areas || [])) {
@@ -2829,7 +2854,7 @@ async function submitCapture(event, kindHint) {
   state.busy = false;
   button.disabled = false;
   button.textContent = 'Rein damit';
-  hint.textContent = 'Wird automatisch einsortiert.';
+  zeigeEinordnungsHinweis();
   if (isTouch) {
     // Tastatur schließen und Eingabe zuklappen, sonst verdeckt beides
     // die Rückmeldung und die Liste darunter.
@@ -2913,8 +2938,25 @@ function setupFab() {
 /* ---------- Start ---------- */
 
 document.getElementById('capture-form').addEventListener('submit', submitCapture);
-for (const [id, kind] of [['capture-shop', 'shopping'], ['capture-wish', 'wishes'],
-                          ['capture-media', 'media']]) {
+
+/* Sichtbar machen, wann ein Modellaufruf anfällt und wann nicht. „Kostet
+   nichts" ist die nützlichere Auskunft als „wird einsortiert": Sie sagt,
+   warum es sich lohnt, die Liste selbst zu wählen. */
+function zeigeEinordnungsHinweis() {
+  const hint = document.getElementById('capture-hint');
+  const listSelect = document.getElementById('capture-list');
+  if (!hint || !listSelect || state.busy) return;
+  hint.textContent = listSelect.value
+    ? 'Liste steht fest — kostet nichts.'
+    : 'Wird automatisch einsortiert.';
+}
+
+document.getElementById('capture-list')
+  .addEventListener('change', zeigeEinordnungsHinweis);
+/* Jeder dieser Knöpfe benennt einen Bereich - und damit steht die Liste
+   fest. Kein Knopfdruck kostet mehr einen Modellaufruf. */
+for (const [id, kind] of [['capture-todo', 'tasks'], ['capture-shop', 'shopping'],
+                          ['capture-wish', 'wishes'], ['capture-media', 'media']]) {
   const button = document.getElementById(id);
   if (button) button.addEventListener('click', () => submitCapture(null, kind));
 }

@@ -1307,9 +1307,18 @@ a.btn { text-decoration: none; display: inline-block; }
 
 @media (max-width: 640px) {
   .capture-row { flex-wrap: wrap; }
-  .capture-buttons { width: 100%; justify-content: space-between; gap: 5px; }
-  .capture-kind { flex: 1; font-size: 12.5px; padding: 8px 4px; min-height: 42px; }
-  #capture-submit { flex: 1.2; }
+  /* Vier Bereichsknöpfe nebeneinander, „Rein damit" darunter über die ganze
+     Breite. In eine Zeile passen fünf Knöpfe am Telefon nicht - die
+     Hauptaktion wurde dabei abgeschnitten. Eigene Zeile heißt außerdem:
+     großes Ziel für den Daumen. */
+  .capture-buttons {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 5px;
+  }
+  .capture-kind { font-size: 11.5px; padding: 7px 2px; min-height: 42px; }
+  #capture-submit { grid-column: 1 / -1; min-height: 46px; }
   .capture-hint { flex-basis: 100%; margin-bottom: 2px; }
 }
 
