@@ -2136,3 +2136,120 @@ h1 > #home-link:hover { color: var(--accent); }
   gap: 6px;
   flex-wrap: wrap;
 }
+
+/* --- Zyklus --- */
+
+/* Ausgeschaltet nur ein Satz zum Aufklappen: Wer das nicht braucht, soll
+   keinen Kasten dafür sehen. */
+.zyklus-aus { margin-bottom: 18px; }
+.zyklus-aus summary {
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 6px 0;
+}
+.zyklus-aus summary:hover { color: var(--accent); }
+.zyklus-aus p.hint { margin: 4px 0 8px; }
+
+.zyklus-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 13px 14px;
+  margin-bottom: 18px;
+}
+.zyklus-kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.zyklus-frage { font-weight: 550; font-size: 14.5px; }
+.zyklus-stand {
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.zyklus-knoepfe { display: flex; flex-wrap: wrap; gap: 6px; }
+.zyklus-knopf {
+  flex: 1 1 auto;
+  min-width: 108px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.zyklus-knopf:hover { border-color: var(--accent); color: var(--accent); }
+.zyklus-knopf:active { transform: scale(.97); }
+
+.zyklus-liste { margin-top: 10px; }
+.zyklus-liste summary {
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.zyklus-zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.zyklus-datum {
+  flex: 0 0 auto;
+  min-width: 82px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.zyklus-art { flex: 1 1 auto; min-width: 0; }
+.zyklus-uhr {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+.zyklus-liste .btn { margin-top: 10px; }
+
+/* --- Ausgeben --- */
+
+.export-box {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 14px;
+  margin-top: 20px;
+}
+.export-kopf {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.export-frage { font-weight: 550; font-size: 14px; }
+.export-wer { font-size: 12px; color: var(--muted); }
+.export-knoepfe { display: flex; flex-wrap: wrap; gap: 7px; }
+/* Als Verweis gebaut, nicht als Knopf: So übernimmt der Browser das
+   Herunterladen selbst, samt Dateinamen vom Server. */
+.export-knopf {
+  flex: 1 1 auto;
+  min-width: 150px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.export-box p.hint { margin: 9px 0 0; font-size: 12px; }

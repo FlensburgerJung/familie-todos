@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS people (
     emoji      TEXT NOT NULL DEFAULT '🙂',
     skills     TEXT NOT NULL DEFAULT '[]',
     role       TEXT NOT NULL DEFAULT '',
+    cycle      INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS todos (
@@ -119,6 +120,17 @@ CREATE TABLE IF NOT EXISTS med_log (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_med_zeit ON med_log(recorded_at);
+CREATE TABLE IF NOT EXISTS cycle_log (
+    id          TEXT PRIMARY KEY,
+    person_id   TEXT NOT NULL DEFAULT '',
+    kind        TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    retro       INTEGER NOT NULL DEFAULT 0,
+    logged_at   TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cycle_zeit ON cycle_log(recorded_at);
 CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
 CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(due_date);
 """
@@ -184,6 +196,7 @@ LATER_COLUMNS = [
     ("pain_log", "logged_at", "TEXT NOT NULL DEFAULT ''"),
     ("med_log", "retro", "INTEGER NOT NULL DEFAULT 0"),
     ("med_log", "logged_at", "TEXT NOT NULL DEFAULT ''"),
+    ("people", "cycle", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -398,7 +411,7 @@ def _migrate_data() -> None:
 # Woran die App erkennt, dass der Aufbau schon erledigt ist. Bei jeder
 # Aenderung an SCHEMA, LATER_COLUMNS, den Startlisten oder _migrate_data
 # hochzaehlen - dann laeuft der Vollaufbau noch einmal.
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 
 
 def _schema_aktuell() -> bool:
@@ -628,6 +641,59 @@ def delete_med(eintrag_id: str) -> bool:
     return store.execute("DELETE FROM med_log WHERE id=?", (eintrag_id,)) > 0
 
 
+# --- Zyklus -------------------------------------------------------------
+
+# Was sich eintragen laesst. Mehr braucht es nicht: Aus dem Beginn und
+# diesen beiden Marken lassen sich die Phasen und der Zyklustag ableiten.
+CYCLE_KINDS = {
+    "periode": "Periode beginnt",
+    "periode_ende": "Periode endet",
+    "eisprung": "Eisprung",
+}
+
+
+def _cycle_row(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "personId": row["person_id"] or "",
+        "kind": row["kind"] or "",
+        "note": row["note"] or "",
+        "recordedAt": row["recorded_at"],
+        "retro": bool(row.get("retro")),
+        "loggedAt": row.get("logged_at") or "",
+    }
+
+
+def get_cycle(limit: int = 600) -> list[dict]:
+    rows = store.query(
+        "SELECT id, person_id, kind, note, recorded_at, retro, logged_at"
+        " FROM cycle_log ORDER BY recorded_at DESC, created_at DESC LIMIT ?",
+        (int(limit),))
+    return [_cycle_row(r) for r in rows]
+
+
+def add_cycle(data: dict) -> dict:
+    art = (data.get("kind") or "").strip()
+    if art not in CYCLE_KINDS:
+        raise ValueError("Unbekannte Art des Zykluseintrags.")
+    eintrag_id = data.get("id") or uuid.uuid4().hex[:12]
+    store.execute(
+        "INSERT INTO cycle_log (id, person_id, kind, note, recorded_at, retro,"
+        " logged_at, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (eintrag_id, data.get("personId") or "", art,
+         (data.get("note") or "").strip()[:500],
+         (data.get("recordedAt") or "").strip() or now_ts(),
+         1 if data.get("retro") else 0, _logged_at(data), now_ts()))
+    row = store.one(
+        "SELECT id, person_id, kind, note, recorded_at, retro, logged_at"
+        " FROM cycle_log WHERE id=?", (eintrag_id,))
+    return _cycle_row(row) if row else {}
+
+
+def delete_cycle(eintrag_id: str) -> bool:
+    return store.execute("DELETE FROM cycle_log WHERE id=?", (eintrag_id,)) > 0
+
+
 # --- Listen -------------------------------------------------------------
 
 def _list_row(row: dict) -> dict:
@@ -741,7 +807,11 @@ def bind_telegram_user(tg_user_id: str, person_id: str) -> None:
 def _person_row(row: dict) -> dict:
     return {"id": row["id"], "name": row["name"], "emoji": row["emoji"],
             "skills": json.loads(row["skills"] or "[]"),
-            "role": row.get("role") or ""}
+            "role": row.get("role") or "",
+            # Ob im Schmerztagebuch die Zyklusmarken angeboten werden. Steht
+            # an der Person, nicht in den Einstellungen: Es ist eine Angabe
+            # ueber einen Menschen, keine Vorliebe des Geraets.
+            "cycle": bool(row.get("cycle"))}
 
 
 def get_people() -> list[dict]:
@@ -776,6 +846,9 @@ def update_person(person_id: str, fields: dict) -> dict | None:
     if "skills" in fields:
         sets.append("skills=?")
         values.append(json.dumps(fields["skills"], ensure_ascii=False))
+    if "cycle" in fields:
+        sets.append("cycle=?")
+        values.append(1 if fields["cycle"] else 0)
     if not sets:
         return get_person(person_id)
     values.append(person_id)
@@ -993,6 +1066,7 @@ def export_all() -> dict:
         # Schmerz von vorletztem Dienstag nicht.
         "pain": get_pain(limit=1000000),
         "meds": get_meds(limit=1000000),
+        "cycle": get_cycle(limit=1000000),
         "settings": get_settings(),
     }
 
@@ -1008,7 +1082,7 @@ def import_all(data: dict, replace: bool = True) -> dict:
     if replace:
         statements += [("DELETE FROM todos", ()), ("DELETE FROM lists", ()),
                        ("DELETE FROM people", ()), ("DELETE FROM pain_log", ()),
-                       ("DELETE FROM med_log", ())]
+                       ("DELETE FROM med_log", ()), ("DELETE FROM cycle_log", ())]
 
     for entry in data.get("lists", []):
         statements.append((
@@ -1021,11 +1095,11 @@ def import_all(data: dict, replace: bool = True) -> dict:
 
     for entry in data.get("people", []):
         statements.append((
-            "INSERT INTO people (id, name, emoji, skills, role, created_at)"
-            " VALUES (?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO people (id, name, emoji, skills, role, cycle, created_at)"
+            " VALUES (?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
             (entry["id"], entry.get("name", entry["id"]), entry.get("emoji", "🙂"),
              json.dumps(entry.get("skills", []), ensure_ascii=False),
-             entry.get("role", ""), now_ts())))
+             entry.get("role", ""), 1 if entry.get("cycle") else 0, now_ts())))
 
     for entry in data.get("todos", []):
         statements.append((
@@ -1066,6 +1140,18 @@ def import_all(data: dict, replace: bool = True) -> dict:
              entry.get("recordedAt") or now_ts(),
              1 if entry.get("retro") else 0, entry.get("loggedAt") or "", now_ts())))
 
+    for entry in data.get("cycle", []):
+        if (entry.get("kind") or "") not in CYCLE_KINDS:
+            continue
+        statements.append((
+            "INSERT INTO cycle_log (id, person_id, kind, note, recorded_at, retro,"
+            " logged_at, created_at) VALUES (?,?,?,?,?,?,?,?)"
+            " ON CONFLICT (id) DO NOTHING",
+            (entry.get("id") or uuid.uuid4().hex[:12], entry.get("personId", ""),
+             entry["kind"], entry.get("note", ""),
+             entry.get("recordedAt") or now_ts(),
+             1 if entry.get("retro") else 0, entry.get("loggedAt") or "", now_ts())))
+
     store.execute_many(statements)
     for key, value in (data.get("settings") or {}).items():
         if key in DEFAULT_SETTINGS:
@@ -1073,4 +1159,4 @@ def import_all(data: dict, replace: bool = True) -> dict:
 
     return {"lists": len(data.get("lists", [])), "people": len(data.get("people", [])),
             "todos": len(data.get("todos", [])), "pain": len(data.get("pain", [])),
-            "meds": len(data.get("meds", []))}
+            "meds": len(data.get("meds", [])), "cycle": len(data.get("cycle", []))}

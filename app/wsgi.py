@@ -13,8 +13,8 @@ import traceback
 from pathlib import Path
 from urllib.parse import parse_qs
 
-from . import (auth, calendar_ics, classify, config, db, heuristic, recipe,
-               shopping, store, telegram)
+from . import (auth, calendar_ics, classify, config, db, heuristic, painreport,
+               recipe, shopping, store, telegram)
 from .constants import (
     DEFAULT_HORIZON,
     EFFORTS,
@@ -25,6 +25,7 @@ from .constants import (
     REPEATS,
     clamp_due_date,
     next_occurrence,
+    slugify,
     snap_effort,
     today,
 )
@@ -62,6 +63,7 @@ def _state() -> dict:
         "recentlyDone": db.recently_done(24),
         "pain": db.get_pain(),
         "meds": db.get_meds(),
+        "cycle": db.get_cycle(),
         "lists": db.get_lists(),
         "people": db.get_people(),
         # calendar_token ist ein Schluessel, schema_version eine interne
@@ -651,6 +653,10 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", r"^/api/pain$", lambda m, p: {"entry": db.add_pain(p)}),
     ("DELETE", r"^/api/pain/([\w-]+)$",
      lambda m, p: (db.delete_pain(m.group(1)), {"ok": True})[1]),
+    ("GET", r"^/api/cycle$", lambda m, p: {"cycle": db.get_cycle()}),
+    ("POST", r"^/api/cycle$", lambda m, p: {"entry": _add_cycle(p)}),
+    ("DELETE", r"^/api/cycle/([\w-]+)$",
+     lambda m, p: (db.delete_cycle(m.group(1)), {"ok": True})[1]),
     ("GET", r"^/api/meds$", lambda m, p: {"meds": db.get_meds()}),
     ("POST", r"^/api/meds$", lambda m, p: {"entry": _add_med(p)}),
     ("DELETE", r"^/api/meds/([\w-]+)$",
@@ -776,6 +782,45 @@ def _calendar(request: Request, person_id: str | None) -> Response:
                     [("Content-Disposition", f'inline; filename="{person_id or "familie"}.ics"')])
 
 
+def _tagebuch_download(request: Request, als_pdf: bool) -> Response:
+    """Schmerztagebuch als CSV oder als aufbereiteter PDF-Bericht.
+
+    Ohne `person` kommt alles in eine Datei. Mit `person` nur das, was dieser
+    Person gehört - plus die Einträge ohne Personenangabe, die aus der Zeit
+    stammen, in der am Gerät niemand gewählt war. Die lautlos wegzulassen
+    wäre schlimmer, als sie einmal zu viel zu zeigen.
+    """
+    person_id = (request.query.get("person") or [""])[0].strip()
+    person = db.get_person(person_id) if person_id else None
+    if person_id and not person:
+        raise ApiError("Diese Person gibt es nicht.", 404)
+
+    messungen = painreport.ps.fuer_person(db.get_pain(limit=100000), person_id)
+    mittel = painreport.ps.fuer_person(db.get_meds(limit=100000), person_id)
+    zyklus = painreport.ps.fuer_person(db.get_cycle(limit=100000), person_id)
+
+    stamm = slugify((person or {}).get("name", "")) or "familie"
+    datum = iso_date(today())
+    if als_pdf:
+        daten = painreport.pdf(messungen, mittel, zyklus, person)
+        typ, endung = "application/pdf", "pdf"
+    else:
+        daten = painreport.csv_bytes(messungen, mittel, zyklus)
+        typ, endung = "text/csv; charset=utf-8", "csv"
+
+    return Response(200, daten, typ, [
+        ("Content-Disposition",
+         f'attachment; filename="schmerztagebuch-{stamm}-{datum}.{endung}"'),
+    ])
+
+
+def _add_cycle(payload: dict) -> dict:
+    try:
+        return db.add_cycle(payload)
+    except ValueError as fehler:
+        raise ApiError(str(fehler)) from fehler
+
+
 def _add_med(payload: dict) -> dict:
     try:
         return db.add_med(payload)
@@ -897,6 +942,10 @@ def _handle(request: Request) -> Response:
     # --- ab hier nur angemeldet ---
     if not auth.is_signed_in(request.cookie):
         raise ApiError("Bitte anmelden.", 401)
+
+    if path in ("/api/pain/export.csv", "/api/pain/report.pdf") \
+            and request.method == "GET":
+        return _tagebuch_download(request, path.endswith(".pdf"))
 
     if path == "/api/export" and request.method == "GET":
         data = json.dumps(db.export_all(), ensure_ascii=False, indent=2).encode("utf-8")

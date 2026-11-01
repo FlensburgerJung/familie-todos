@@ -333,8 +333,62 @@ dem Tag genommen wurde, je Mittel zusammengefasst: zwei mal Ibu 400 wird zu
 > Ratschlag, und den kann ein Familienkalender nicht verantworten. Die
 > Tagessumme ist eine Angabe, keine Beurteilung.
 
-Messungen und Einnahmen gehören der Person, die am Gerät angemeldet ist, und
-stehen in jeder Sicherung. Das ist das einzige in dieser App, was sich nicht
+### Zyklus mitführen
+
+Bei manchen Beschwerden hängt die Stärke am Zyklus — und das sieht man erst,
+wenn beides nebeneinander aufgeschrieben ist.
+
+Standardmäßig ist das **aus**; im Tagebuch steht nur ein unscheinbarer Satz
+„Zyklus mitführen" zum Aufklappen. Eingeschaltet erscheinen drei Knöpfe:
+**Periode beginnt · Periode endet · Eisprung**. Daraus leitet der Bericht
+Zyklustag und Phase ab; mehr wird nicht gebraucht.
+
+Die Einstellung hängt **an der Person, nicht am Gerät**: Wer sich an einem
+anderen Telefon anmeldet, findet sie dort wieder — und in einem fremden
+Tagebuch taucht kein Knopf „Periode beginnt" auf. Auch die Zyklusmarken
+selbst sieht nur, wem sie gehören.
+
+### Ausgeben — CSV und PDF
+
+Unten im Tagebuch stehen zwei Knöpfe, **je Person** (zwei Menschen in einem
+Bericht ergäben Mittelwerte, die niemandem gehören):
+
+**📊 Rohdaten als CSV** — eine Zeile je Eintrag, chronologisch, mit Datum,
+Uhrzeit, Art, Wert, Stelle beziehungsweise Mittel, Notiz, dem Vermerk
+„nachgetragen" und dem Zeitpunkt des Eintragens. Semikolon als Trenner und
+eine BOM voran, damit Excel die Umlaute und die Spalten auf Anhieb richtig
+nimmt.
+
+**📄 Bericht als PDF** — das, was man in eine Sprechstunde mitnimmt:
+
+| Abschnitt | Inhalt |
+|---|---|
+| Übersicht | Messungen, Mittelwert, Median, Spanne, schmerzfreie Tage, Zeitraum |
+| Über den Tag | mittlerer Wert je Dreistundenblock, mit n |
+| Über die Woche | mittlerer Wert je Wochentag |
+| Nach Körperstelle | wie oft, wie stark, Höchstwert |
+| Schmerzmittel | Einnahmen, Gesamtmenge, Durchschnitt je Einnahme |
+| Vor und nach einer Einnahme | je Mittel: vorher, nachher, Differenz, wie oft besser/gleich/schlechter |
+| Im Zyklus | nach Phase und nach Zyklustag, dazu die Zyklen mit Länge |
+| Alle Einträge | die vollständige Liste |
+
+Der Vergleich vor/nach nimmt die letzte Messung bis 150 Minuten **vor** einer
+Einnahme und das Mittel aller Messungen zwischen 30 Minuten und 4 Stunden
+**danach**. Es gehen nur Einnahmen ein, für die beides vorliegt — der Bericht
+sagt jedes Mal dazu, auf wie vielen Paaren eine Zahl beruht.
+
+> Das ist **eine Beobachtung, kein Wirksamkeitsnachweis**. Niemand hat zum
+> Vergleich nichts eingenommen, und Schmerz lässt häufig auch von allein
+> nach. Bei wenigen Paaren ist ein Unterschied von einem Punkt nicht von
+> Zufall zu unterscheiden. Der Bericht schreibt das an jeder Stelle dazu, an
+> der es sonst nach Beweis aussähe.
+
+Das PDF entsteht ohne Zusatzpaket: `app/pdfwriter.py` schreibt die Datei
+selbst (rund 190 Zeilen), weil ein PDF ein Textformat mit einer Tabelle am
+Ende ist und diese App bewusst ohne `reportlab` auskommt.
+
+Messungen, Einnahmen und Zyklusmarken gehören der Person, die am Gerät
+angemeldet ist, und stehen in jeder Sicherung. Das ist das einzige in dieser App, was sich nicht
 wiederherstellen lässt: Eine Aufgabe schreibt man neu, einen Schmerz von
 vorletztem Dienstag nicht.
 
@@ -644,6 +698,9 @@ app/
   config.py           Einstellungen und Schlüssel
   calendar_ics.py     Kalender-Feed
   constants.py        Zeithorizonte, Datumslogik
+  painstats.py        Auswertung des Schmerztagebuchs (reine Rechnerei)
+  painreport.py       der Bericht: PDF-Aufbau und CSV
+  pdfwriter.py        kleiner PDF-Erzeuger, ohne Zusatzpaket
   check.py            Selbsttest: python3 -m app.check
   llm/                anthropic.py · mistral.py · openai.py · ollama.py
 web/                  Oberfläche (HTML, CSS, JS, Service Worker)

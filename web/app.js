@@ -10,6 +10,7 @@ const state = {
   medOffen: '',          // welches Mittel gerade seine Mengen zeigt
   painNachtrag: false,   // traegt gerade etwas Vergangenes ein
   painZeitpunkt: '',     // fuer wann, als 'JJJJ-MM-TTTHH:MM' (leer = jetzt)
+  cycle: [],             // Zyklusmarken, neueste zuerst
   painWert: 3,           // Stellung des Schiebers, noch nicht eingetragen
   painOrt: '',           // zuletzt gewaehlte Koerperstelle
   painTage: 14,          // Spanne des Verlaufs in Tagen
@@ -1941,6 +1942,160 @@ function medKasten() {
   ]);
 }
 
+/* Zyklus mitführen - nur, wenn die Person das eingeschaltet hat.
+
+   Standardmäßig aus: Ein Schmerztagebuch gehört nicht jedem, und ein Knopf
+   „Periode beginnt" hat in einem fremden Tagebuch nichts zu suchen. Die
+   Angabe hängt darum an der Person, nicht am Gerät - wer sich an einem
+   anderen Telefon anmeldet, findet sie dort wieder.
+
+   Warum überhaupt: Bei manchen Beschwerden hängt die Stärke am Zyklus, und
+   das sieht man erst, wenn beides nebeneinander aufgeschrieben ist. Aus
+   Beginn, Ende und Eisprung lassen sich Zyklustag und Phase ableiten; mehr
+   braucht der Bericht nicht. */
+const ZYKLUS_MARKEN = [
+  { id: 'periode', name: 'Periode beginnt', zeichen: '🔴' },
+  { id: 'periode_ende', name: 'Periode endet', zeichen: '⚪' },
+  { id: 'eisprung', name: 'Eisprung', zeichen: '🥚' },
+];
+
+function zyklusEintraege() {
+  return (state.cycle || []).filter(e => !state.me || !e.personId
+                                         || e.personId === state.me);
+}
+
+function michSelbst() {
+  return state.people.find(p => p.id === state.me) || null;
+}
+
+async function zyklusEintragen(art) {
+  const zeit = painZeitAngabe();
+  const name = (ZYKLUS_MARKEN.find(m => m.id === art) || {}).name || art;
+  try {
+    await api('/api/cycle', 'POST', {
+      kind: art, personId: state.me || '',
+      loggedAt: painJetztStempel(), ...zeit,
+    });
+    toast(`${name} eingetragen` + (zeit.retro ? ' (nachgetragen).' : '.'));
+    await refresh();
+  } catch (fehler) { toast(fehler.message, true); }
+}
+
+async function zyklusUmschalten(an) {
+  const ich = michSelbst();
+  if (!ich) { toast('Dafür musst du oben sagen, wer du bist.', true); return; }
+  try {
+    await api(`/api/people/${ich.id}`, 'PATCH', { cycle: an });
+    await refresh();
+  } catch (fehler) { toast(fehler.message, true); }
+}
+
+function zyklusKasten() {
+  const ich = michSelbst();
+  if (!ich) return null;
+
+  if (!ich.cycle) {
+    // Unauffällig: ein Satz zum Aufklappen, kein Kasten.
+    return el('details', { class: 'zyklus-aus' }, [
+      el('summary', { text: 'Zyklus mitführen' }),
+      el('p', { class: 'hint',
+        text: 'Trägt Periode und Eisprung mit ein. Der Bericht zeigt dann, '
+            + 'wie der Schmerz über den Zyklus verläuft. Nur für dich — '
+            + 'andere sehen diese Knöpfe nicht.' }),
+      el('button', {
+        type: 'button', class: 'btn btn-sm', text: 'Einschalten',
+        onclick: () => zyklusUmschalten(true),
+      }),
+    ]);
+  }
+
+  const letzte = zyklusEintraege();
+  const letzterStart = letzte.find(e => e.kind === 'periode');
+  let stand = 'noch nichts eingetragen';
+  if (letzterStart) {
+    const tage = Math.floor(
+      (Date.now() - new Date(letzterStart.recordedAt).getTime()) / 86400000);
+    stand = `Zyklustag ${tage + 1} · Beginn ${painZeit(letzterStart.recordedAt).tag}`;
+  }
+
+  return el('section', { class: 'zyklus-box' }, [
+    el('div', { class: 'zyklus-kopf' }, [
+      el('span', { class: 'zyklus-frage', text: '🌙 Zyklus' }),
+      el('span', { class: 'zyklus-stand', text: stand }),
+    ]),
+    el('div', { class: 'zyklus-knoepfe' }, ZYKLUS_MARKEN.map(marke =>
+      el('button', {
+        type: 'button', class: 'zyklus-knopf',
+        onclick: () => zyklusEintragen(marke.id),
+      }, [
+        el('span', { 'aria-hidden': 'true', text: marke.zeichen }),
+        el('span', { text: marke.name }),
+      ]))),
+    el('details', { class: 'zyklus-liste' }, [
+      el('summary', { text: `Eingetragene Marken (${letzte.length})` }),
+      letzte.length
+        ? el('div', {}, letzte.slice(0, 20).map(eintrag => {
+            const { tag, uhr } = painZeit(eintrag.recordedAt);
+            const marke = ZYKLUS_MARKEN.find(m => m.id === eintrag.kind) || {};
+            return el('div', { class: 'zyklus-zeile' }, [
+              // Eigene Klasse, nicht die des Tagebuchs: Die Zyklusliste ist
+              // eine andere Sache und soll sich getrennt gestalten lassen.
+              el('span', { class: 'zyklus-datum', text: tag }),
+              el('span', { class: 'zyklus-art',
+                text: `${marke.zeichen || ''} ${marke.name || eintrag.kind}` }),
+              eintrag.retro ? nachtragMarke(eintrag) : null,
+              el('span', { class: 'zyklus-uhr', text: uhr }),
+              wegKnopf(`/api/cycle/${eintrag.id}`),
+            ]);
+          }))
+        : el('p', { class: 'hint', text: 'Noch keine Marke eingetragen.' }),
+      el('button', {
+        type: 'button', class: 'btn btn-sm btn-quiet', text: 'Zyklus nicht mehr mitführen',
+        onclick: () => zyklusUmschalten(false),
+      }),
+    ]),
+  ]);
+}
+
+/* Das Tagebuch aus der App herausholen.
+
+   Zwei Formate, weil zwei Zwecke: Die CSV-Datei ist der Rohstoff für eine
+   Tabellenkalkulation. Das PDF ist das, was man in eine Sprechstunde
+   mitnimmt - ausgewertet, mit Verteilungen über Tag und Woche, dem
+   Vergleich vor und nach einer Einnahme und, falls eingetragen, dem
+   Zyklus.
+
+   Je Person, nicht für alle zusammen: Zwei Menschen in einem Bericht
+   ergäben Mittelwerte, die niemandem gehören. */
+function exportKasten() {
+  const ich = michSelbst();
+  const suffix = ich ? `?person=${encodeURIComponent(ich.id)}` : '';
+  const wer = ich ? ich.name : 'alle zusammen';
+
+  const link = (pfad, beschriftung, titel) => el('a', {
+    class: 'btn btn-sm export-knopf', href: pfad, download: '',
+    title: titel, text: beschriftung,
+  });
+
+  return el('section', { class: 'export-box' }, [
+    el('div', { class: 'export-kopf' }, [
+      el('span', { class: 'export-frage', text: '📤 Tagebuch ausgeben' }),
+      el('span', { class: 'export-wer', text: wer }),
+    ]),
+    el('div', { class: 'export-knoepfe' }, [
+      link(`/api/pain/report.pdf${suffix}`, '📄 Bericht als PDF',
+           'Aufbereitet: Verteilung über Tag und Woche, Wirkung der Mittel, '
+           + 'Zyklus und alle Einträge'),
+      link(`/api/pain/export.csv${suffix}`, '📊 Rohdaten als CSV',
+           'Eine Zeile je Eintrag — für Excel oder LibreOffice'),
+    ]),
+    el('p', { class: 'hint',
+      text: ich
+        ? `Enthält die Einträge von ${ich.name}.`
+        : 'Oben niemanden gewählt — die Datei enthält alle Einträge.' }),
+  ]);
+}
+
 function viewPain() {
   const eintraege = painEintraege();
   const crumbs = breadcrumb([
@@ -2116,8 +2271,10 @@ function viewPain() {
     ]),
     formular,
     medKasten(),
+    zyklusKasten(),
     verlauf,
     liste,
+    exportKasten(),
   ]);
 }
 
