@@ -385,10 +385,10 @@ DATABASE_URL='postgresql://…' .venv/bin/python -m app.check   # online
 
 | Problem | Ursache | Lösung |
 |---|---|---|
-| **App fährt an, kommt aber nie zum Ende.** Render meldet „live", die Seite bleibt beim Aufwachen stehen | Siehe den Kasten unten — meist ein Paket, das nicht zum anderen passt | Log ansehen: `AttributeError` beim Datenbankzugriff? Dann **Clear build cache & deploy** |
+| **App fährt an, kommt aber nie zum Ende.** Render meldet „live", die Seite bleibt beim Aufwachen stehen | Siehe den Kasten unten — meist ein Paket, das nicht zum anderen passt | Log ansehen: `AttributeError` beim Datenbankzugriff? Dann das Paket in `requirements.txt` ausdrücklich festnageln |
 | App startet bei Render nicht, Log sagt „APP_PASSWORD ist nicht gesetzt" | Absicht — ohne Passwort wäre die Liste öffentlich | Variable bei Render eintragen |
 | „Der Treiber pg8000 fehlt" | `DATABASE_URL` gesetzt, Pakete nicht installiert | `.venv/bin/pip install -r requirements.txt` |
-| „Der Datenbanktreiber passt nicht zu seiner Anmelde-Bibliothek" | Veraltetes `scramp` im Build-Cache von Render | **Clear build cache & deploy** (siehe Kasten) |
+| „Der Datenbanktreiber passt nicht zu seiner Anmelde-Bibliothek" | Veraltetes `scramp` im Build-Cache von Render | Ist in `requirements.txt` erledigt; ein normaler Deploy zieht die neue Fassung |
 | Einordnung ist online plötzlich schlecht | Kein API-Schlüssel gesetzt; online gibt es kein Ollama | Schlüssel als Umgebungsvariable eintragen |
 | Erster Aufruf dauert ewig | Kostenloser Render-Tarif schläft nach 15 Min | normal — oder auf Starter wechseln |
 | Ollama antwortet nicht | Modell nicht geladen oder Ollama aus | `ollama list` prüfen, Ollama starten |
@@ -419,15 +419,32 @@ AttributeError: module 'scramp' has no attribute 'make_channel_binding'
 aber nur als Unterabhängigkeit. War `pg8000` aus einem früheren Build schon
 vorhanden, meldet pip „Requirement already satisfied" und sieht die
 Unterabhängigkeiten **nie wieder an** — eine veraltete `scramp`-Fassung bleibt
-dann für immer liegen. Beide Pakete stehen deshalb jetzt ausdrücklich in
-`requirements.txt`.
+dann für immer liegen, so lange der Build-Cache besteht.
 
-**Zu tun:**
+Die Funktion `make_channel_binding` kam in `scramp` 1.2 dazu; im Cache lag
+also noch eine Fassung aus der Anfangszeit des Projekts. Beide Pakete stehen
+deshalb jetzt ausdrücklich in `requirements.txt` — damit prüft pip sie bei
+jedem Deploy.
 
-1. Bei Render unter **Manual Deploy → Clear build cache & deploy**. Nur das
-   räumt den alten Paketstand weg; ein normaler Deploy nicht.
-2. Vorher prüfen lässt sich das mit `python3 -m app.check` — der Abschnitt
-   **Treiber** sagt, ob die Pakete zueinander passen.
+**Zu tun: nichts Besonderes.** Ein gewöhnlicher Deploy genügt, seit `scramp`
+namentlich in `requirements.txt` steht. pip prüft eine ausdrücklich genannte
+Zeile bei jedem Lauf: Es findet die alte Fassung, deinstalliert sie und holt
+die festgelegte.
+
+Nachgemessen in einer Wegwerf-Umgebung mit nachgestelltem Build-Cache:
+
+```
+Attempting uninstall: scramp
+  Successfully uninstalled scramp-1.4.1
+Successfully installed … scramp-1.4.17
+```
+
+Nur falls ein Deploy wider Erwarten nicht greift, hilft **Manual Deploy →
+Clear build cache & deploy**. Das ist die Notlösung, nicht der Normalfall —
+und schon gar nichts, was man bei jedem Deploy machen müsste.
+
+Prüfen lässt sich der Paketstand jederzeit mit `python3 -m app.check`; der
+Abschnitt **Treiber** sagt, ob die beiden zueinander passen.
 
 In der App selbst steht bei so einem Fehler jetzt ein Klartext-Satz statt
 „Interner Fehler — siehe Server-Log". Und wenn das Warten ungewöhnlich lange
