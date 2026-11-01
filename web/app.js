@@ -8,6 +8,8 @@ const state = {
   pain: [],              // Schmerztagebuch, neueste zuerst
   meds: [],              // Einnahmen von Schmerzmitteln, neueste zuerst
   medOffen: '',          // welches Mittel gerade seine Mengen zeigt
+  painNachtrag: false,   // traegt gerade etwas Vergangenes ein
+  painZeitpunkt: '',     // fuer wann, als 'JJJJ-MM-TTTHH:MM' (leer = jetzt)
   painWert: 3,           // Stellung des Schiebers, noch nicht eingetragen
   painOrt: '',           // zuletzt gewaehlte Koerperstelle
   painTage: 14,          // Spanne des Verlaufs in Tagen
@@ -1531,6 +1533,77 @@ const MEDIKAMENTE = [
     dosen: [[500, 'mg'], [1000, 'mg'], [20, 'Tropfen'], [40, 'Tropfen']] },
 ];
 
+/* Für welchen Zeitpunkt der nächste Eintrag gilt - und ob er als
+   nachgetragen zu vermerken ist.
+
+   Der Normalfall ist „jetzt": Man sitzt mit den Schmerzen da und trägt ein.
+   Nachtragen muss aber gehen, denn im schlimmsten Moment greift niemand zum
+   Telefon. Nur darf das eine nicht als das andere durchgehen - ein Wert, der
+   drei Tage später aus dem Gedächtnis kommt, ist nicht dasselbe wie einer vom
+   Moment. Deshalb hängt am Eintrag ein Vermerk, und der steht auch im
+   Tagebuch und in der Sicherung.
+
+   Der Schalter gilt für beides, Schmerz und Mittel: „Gestern Abend war es
+   eine 8 und ich habe Tilidin genommen" ist ein Vorgang, nicht zwei. */
+function painZeitAngabe() {
+  if (!state.painNachtrag || !state.painZeitpunkt) {
+    return { recordedAt: painJetztStempel(), retro: false };
+  }
+  // datetime-local liefert 16 Zeichen ohne Sekunden.
+  const wann = state.painZeitpunkt.length === 16
+    ? state.painZeitpunkt + ':00'
+    : state.painZeitpunkt;
+  return { recordedAt: wann, retro: true };
+}
+
+/* Der Eintrag gilt als nachgetragen, solange der Schalter steht - auch wenn
+   die eingestellte Zeit zufällig die jetzige ist. Das ist eine Aussage des
+   Menschen, keine Rechnung: Nur er weiß, ob er aus dem Moment oder aus der
+   Erinnerung schreibt. */
+function painZeitSchalter() {
+  const jetztKnopf = el('button', {
+    type: 'button',
+    class: 'zeit-knopf' + (state.painNachtrag ? '' : ' an'),
+    text: 'Jetzt',
+    onclick: () => {
+      state.painNachtrag = false;
+      render();
+    },
+  });
+  const nachKnopf = el('button', {
+    type: 'button',
+    class: 'zeit-knopf' + (state.painNachtrag ? ' an' : ''),
+    text: 'Nachtragen',
+    onclick: () => {
+      state.painNachtrag = true;
+      // Mit der jetzigen Zeit vorbelegen: so muss man nur daran drehen,
+      // statt alles einzugeben.
+      if (!state.painZeitpunkt) state.painZeitpunkt = painJetztStempel().slice(0, 16);
+      render();
+    },
+  });
+
+  return el('div', { class: 'zeit-box' + (state.painNachtrag ? ' ist-nachtrag' : '') }, [
+    el('div', { class: 'zeit-wahl', role: 'group', 'aria-label': 'Zeitpunkt' }, [
+      jetztKnopf, nachKnopf,
+    ]),
+    state.painNachtrag
+      ? el('div', { class: 'zeit-feld' }, [
+          el('input', {
+            type: 'datetime-local', id: 'zeit-wann', class: 'zeit-wann',
+            value: state.painZeitpunkt,
+            'aria-label': 'Wann war das?',
+            // Nur mitschreiben, nicht neu zeichnen - sonst verliert das Feld
+            // unter dem Finger den Fokus.
+            oninput: event => { state.painZeitpunkt = event.target.value; },
+          }),
+          el('span', { class: 'zeit-vermerk',
+            text: 'wird als nachgetragen vermerkt' }),
+        ])
+      : null,
+  ]);
+}
+
 function medEintraege() {
   return (state.meds || []).filter(e => !state.me || !e.personId
                                         || e.personId === state.me);
@@ -1547,14 +1620,17 @@ function medMenge(eintrag) {
 }
 
 async function medEintragen(name, menge, einheit) {
+  const zeit = painZeitAngabe();
   try {
     await api('/api/meds', 'POST', {
       drug: name, dose: menge, unit: einheit,
       personId: state.me || '',
-      recordedAt: painJetztStempel(),
+      loggedAt: painJetztStempel(),
+      ...zeit,
     });
     state.medOffen = '';
-    toast(`${name} ${menge} ${einheit} eingetragen.`);
+    toast(`${name} ${menge} ${einheit} eingetragen`
+        + (zeit.retro ? ' (nachgetragen).' : '.'));
     await refresh();
   } catch (fehler) {
     toast(fehler.message, true);
@@ -1660,18 +1736,21 @@ function painVerlauf(eintraege) {
 }
 
 async function painEintragen() {
+  const zeit = painZeitAngabe();
   const nutzlast = {
     value: state.painWert,
     place: state.painOrt,
     note: (document.getElementById('vas-notiz') || {}).value || '',
     personId: state.me || '',
-    recordedAt: painJetztStempel(),
+    loggedAt: painJetztStempel(),
+    ...zeit,
   };
   try {
     await api('/api/pain', 'POST', nutzlast);
     const notiz = document.getElementById('vas-notiz');
     if (notiz) notiz.value = '';
-    toast(`Eingetragen: ${nutzlast.value} von 10.`);
+    toast(`Eingetragen: ${nutzlast.value} von 10`
+        + (zeit.retro ? ' (nachgetragen).' : '.'));
     await refresh();
   } catch (fehler) {
     toast(fehler.message, true);
@@ -1693,7 +1772,26 @@ function painKopfzeile(messungen, mittel) {
   if (mittel.length) {
     teile.push(`${mittel.length} ${mittel.length === 1 ? 'Einnahme' : 'Einnahmen'}`);
   }
+  // Wie viel davon aus der Erinnerung kommt, gehört in die Übersicht: Es
+  // sagt, wie belastbar das Ganze ist.
+  const nachgetragen = [...messungen, ...mittel].filter(e => e.retro).length;
+  if (nachgetragen) teile.push(`${nachgetragen} nachgetragen`);
   return teile.join(' · ');
+}
+
+/* Der Vermerk am Eintrag. Ohne ihn liesse sich ein nachgetragener Wert
+   nicht von einem im Moment gemessenen unterscheiden - und genau das ist
+   der Unterschied, der zaehlt. */
+function nachtragMarke(eintrag) {
+  if (!eintrag.retro) return null;
+  const notiert = eintrag.loggedAt ? painZeit(eintrag.loggedAt) : null;
+  return el('span', {
+    class: 'chip nachtrag',
+    text: 'nachgetragen',
+    title: notiert
+      ? `Später eingetragen: ${notiert.tag} um ${notiert.uhr}`
+      : 'Nicht im Moment festgehalten, sondern später eingetragen',
+  });
 }
 
 function wegKnopf(pfad) {
@@ -1793,27 +1891,24 @@ function medKasten() {
     'aria-label': 'Einheit' },
     ['mg', 'Tropfen', 'Tablette', 'ml'].map(e =>
       el('option', { value: e, text: e })));
-  const andersZeit = el('input', {
-    type: 'datetime-local', class: 'med-frei-zeit', id: 'med-frei-zeit',
-    'aria-label': 'Wann (leer = jetzt)',
-  });
 
+  // Kein eigenes Zeitfeld mehr: Der Zeitpunkt steht oben und gilt für
+  // Schmerz und Mittel gleichermaßen. Zwei Stellen, an denen sich die Zeit
+  // einstellen lässt, wären zwei Gelegenheiten, die falsche zu erwischen.
   const eintragen = async () => {
     const name = andersName.value.trim();
     if (!name) { toast('Welches Mittel war es?', true); return; }
+    const zeit = painZeitAngabe();
     try {
       await api('/api/meds', 'POST', {
         drug: name,
         dose: Number(andersMenge.value.replace(',', '.')) || 0,
         unit: andersEinheit.value,
         personId: state.me || '',
-        // Leer heißt jetzt. Der Browser liefert hier Ortszeit ohne Zone,
-        // genau die Form, die die Datenbank erwartet.
-        recordedAt: andersZeit.value
-          ? andersZeit.value.length === 16 ? andersZeit.value + ':00' : andersZeit.value
-          : painJetztStempel(),
+        loggedAt: painJetztStempel(),
+        ...zeit,
       });
-      toast(`${name} eingetragen.`);
+      toast(`${name} eingetragen` + (zeit.retro ? ' (nachgetragen).' : '.'));
       await refresh();
     } catch (fehler) { toast(fehler.message, true); }
   };
@@ -1822,18 +1917,23 @@ function medKasten() {
 
   return el('section', { class: 'med-box' }, [
     el('div', { class: 'med-kopf' }, [
-      el('span', { class: 'med-frage', text: '💊 Schmerzmittel genommen?' }),
+      el('span', { class: 'med-frage',
+        text: state.painNachtrag
+          ? '💊 Schmerzmittel — für den Zeitpunkt oben'
+          : '💊 Schmerzmittel genommen?' }),
     ]),
     el('div', { class: 'med-liste' }, zeilen),
     el('details', { class: 'med-anders' }, [
       el('summary', { text: 'Anderes Mittel oder nachtragen' }),
       el('div', { class: 'med-frei' }, [
-        andersName, andersMenge, andersEinheit, andersZeit,
+        andersName, andersMenge, andersEinheit,
         el('button', { type: 'button', class: 'btn btn-sm med-frei-knopf',
                        text: 'Eintragen', onclick: eintragen }),
       ]),
       el('p', { class: 'hint',
-        text: 'Zeit leer lassen heißt jetzt.' }),
+        text: state.painNachtrag
+          ? 'Gilt für den oben eingestellten Zeitpunkt.'
+          : 'Gilt für jetzt — zum Nachtragen oben auf „Nachtragen" stellen.' }),
     ]),
     el('p', { class: 'hint',
       text: 'Festgehalten wird, was genommen wurde — die App gibt keine '
@@ -1889,6 +1989,7 @@ function viewPain() {
   const orteZeile = orte.length ? el('div', { class: 'vas-orte' }, ortKnoepfe) : null;
 
   const formular = el('section', { class: 'vas-box' }, [
+    painZeitSchalter(),
     el('div', { class: 'vas-kopf' }, [
       el('span', { class: 'vas-frage', text: 'Wie stark ist es gerade?' }),
       el('span', { class: 'vas-anzeige' }, [anzeige, wort]),
@@ -1909,11 +2010,13 @@ function viewPain() {
     }),
     el('button', {
       type: 'button', class: 'btn btn-primary vas-eintragen',
-      text: 'Jetzt eintragen',
+      text: state.painNachtrag ? 'Nachtragen' : 'Jetzt eintragen',
       onclick: painEintragen,
     }),
     el('p', { class: 'hint',
-      text: 'Datum und Uhrzeit setzt die App selbst — du musst nur die Stärke sagen.' }),
+      text: state.painNachtrag
+        ? 'Der Eintrag wird als nachgetragen vermerkt.'
+        : 'Datum und Uhrzeit setzt die App selbst — du musst nur die Stärke sagen.' }),
   ]);
 
   /* --- Der Verlauf --- */
@@ -1963,7 +2066,10 @@ function viewPain() {
         el('span', { class: 'vas-messwert', text: String(eintrag.value) }),
       ]),
       el('span', { class: 'vas-text' }, [
-        eintrag.place ? el('span', { class: 'vas-stelle', text: eintrag.place }) : null,
+        el('span', { class: 'vas-oben' }, [
+          eintrag.place ? el('span', { class: 'vas-stelle', text: eintrag.place }) : null,
+          nachtragMarke(eintrag),
+        ]),
         eintrag.note ? el('span', { class: 'vas-notiz-text', text: eintrag.note }) : null,
       ]),
       wegKnopf(`/api/pain/${eintrag.id}`),
@@ -1976,7 +2082,10 @@ function viewPain() {
         el('span', { class: 'med-menge', text: medMenge(eintrag) }),
       ]),
       el('span', { class: 'vas-text' }, [
-        el('span', { class: 'vas-stelle', text: eintrag.drug }),
+        el('span', { class: 'vas-oben' }, [
+          el('span', { class: 'vas-stelle', text: eintrag.drug }),
+          nachtragMarke(eintrag),
+        ]),
         eintrag.note ? el('span', { class: 'vas-notiz-text', text: eintrag.note }) : null,
       ]),
       wegKnopf(`/api/meds/${eintrag.id}`),
@@ -2390,7 +2499,14 @@ function painKachel() {
 
   const kachel = el('button', {
     class: 'big-tile pain-tile' + (letzter ? '' : ' is-empty'), type: 'button',
-    onclick: () => openFocus('pain'),
+    onclick: () => {
+      // Ein frischer Besuch beginnt immer bei „jetzt". Sonst trägt man beim
+      // nächsten Mal unbemerkt auf einen alten Zeitpunkt ein.
+      state.painNachtrag = false;
+      state.painZeitpunkt = '';
+      state.medOffen = '';
+      openFocus('pain');
+    },
   }, [
     el('span', { class: 'big-emoji', text: '🩹' }),
     el('span', { class: 'big-name', text: 'Schmerztagebuch' }),

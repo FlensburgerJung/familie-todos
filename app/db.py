@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS pain_log (
     place       TEXT NOT NULL DEFAULT '',
     note        TEXT NOT NULL DEFAULT '',
     recorded_at TEXT NOT NULL,
+    retro       INTEGER NOT NULL DEFAULT 0,
+    logged_at   TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pain_zeit ON pain_log(recorded_at);
@@ -112,6 +114,8 @@ CREATE TABLE IF NOT EXISTS med_log (
     unit        TEXT NOT NULL DEFAULT 'mg',
     note        TEXT NOT NULL DEFAULT '',
     recorded_at TEXT NOT NULL,
+    retro       INTEGER NOT NULL DEFAULT 0,
+    logged_at   TEXT NOT NULL DEFAULT '',
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_med_zeit ON med_log(recorded_at);
@@ -176,6 +180,10 @@ LATER_COLUMNS = [
     ("todos", "detail", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "client_id", "TEXT NOT NULL DEFAULT ''"),
     ("todos", "errand_for", "TEXT NOT NULL DEFAULT ''"),
+    ("pain_log", "retro", "INTEGER NOT NULL DEFAULT 0"),
+    ("pain_log", "logged_at", "TEXT NOT NULL DEFAULT ''"),
+    ("med_log", "retro", "INTEGER NOT NULL DEFAULT 0"),
+    ("med_log", "logged_at", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 
@@ -390,7 +398,7 @@ def _migrate_data() -> None:
 # Woran die App erkennt, dass der Aufbau schon erledigt ist. Bei jeder
 # Aenderung an SCHEMA, LATER_COLUMNS, den Startlisten oder _migrate_data
 # hochzaehlen - dann laeuft der Vollaufbau noch einmal.
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 
 def _schema_aktuell() -> bool:
@@ -501,14 +509,17 @@ def _pain_row(row: dict) -> dict:
         "place": row["place"] or "",
         "note": row["note"] or "",
         "recordedAt": row["recorded_at"],
+        "retro": bool(row.get("retro")),
+        "loggedAt": row.get("logged_at") or "",
     }
 
 
 def get_pain(limit: int = PAIN_LIMIT) -> list[dict]:
     """Die jüngsten Einträge, neueste zuerst."""
     rows = store.query(
-        "SELECT id, person_id, value, place, note, recorded_at FROM pain_log"
-        " ORDER BY recorded_at DESC, created_at DESC LIMIT ?", (int(limit),))
+        "SELECT id, person_id, value, place, note, recorded_at, retro, logged_at"
+        " FROM pain_log ORDER BY recorded_at DESC, created_at DESC LIMIT ?",
+        (int(limit),))
     return [_pain_row(r) for r in rows]
 
 
@@ -523,18 +534,31 @@ def add_pain(data: dict) -> dict:
     wann = (data.get("recordedAt") or "").strip() or now_ts()
     store.execute(
         "INSERT INTO pain_log (id, person_id, value, place, note, recorded_at,"
-        " created_at) VALUES (?,?,?,?,?,?,?)",
+        " retro, logged_at, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (eintrag_id, data.get("personId") or "", wert,
          (data.get("place") or "").strip()[:80],
-         (data.get("note") or "").strip()[:500], wann, now_ts()))
+         (data.get("note") or "").strip()[:500], wann,
+         1 if data.get("retro") else 0, _logged_at(data), now_ts()))
     row = store.one(
-        "SELECT id, person_id, value, place, note, recorded_at FROM pain_log"
-        " WHERE id=?", (eintrag_id,))
+        "SELECT id, person_id, value, place, note, recorded_at, retro, logged_at"
+        " FROM pain_log WHERE id=?", (eintrag_id,))
     return _pain_row(row) if row else {}
 
 
 def delete_pain(eintrag_id: str) -> bool:
     return store.execute("DELETE FROM pain_log WHERE id=?", (eintrag_id,)) > 0
+
+
+def _logged_at(data: dict) -> str:
+    """Wann der Eintrag geschrieben wurde - in der Zeit des Geraets.
+
+    Warum nicht created_at nehmen: Das ist die Zeit des Servers, und der
+    laeuft beim Hoster auf UTC. recorded_at kommt dagegen vom Handy in
+    Ortszeit. Die beiden zu vergleichen oder nebeneinander anzuzeigen ergaebe
+    eine Stunde Unterschied aus dem Nichts. Darum schickt das Geraet seine
+    eigene Uhrzeit mit; created_at bleibt als Serverspur daneben stehen.
+    """
+    return (data.get("loggedAt") or "").strip()[:25]
 
 
 # --- Schmerzmittel ------------------------------------------------------
@@ -553,14 +577,17 @@ def _med_row(row: dict) -> dict:
         "unit": row["unit"] or "mg",
         "note": row["note"] or "",
         "recordedAt": row["recorded_at"],
+        "retro": bool(row.get("retro")),
+        "loggedAt": row.get("logged_at") or "",
     }
 
 
 def get_meds(limit: int = MED_LIMIT) -> list[dict]:
     """Die jüngsten Einnahmen, neueste zuerst."""
     rows = store.query(
-        "SELECT id, person_id, drug, dose, unit, note, recorded_at FROM med_log"
-        " ORDER BY recorded_at DESC, created_at DESC LIMIT ?", (int(limit),))
+        "SELECT id, person_id, drug, dose, unit, note, recorded_at, retro, logged_at"
+        " FROM med_log ORDER BY recorded_at DESC, created_at DESC LIMIT ?",
+        (int(limit),))
     return [_med_row(r) for r in rows]
 
 
@@ -585,14 +612,15 @@ def add_med(data: dict) -> dict:
     eintrag_id = data.get("id") or uuid.uuid4().hex[:12]
     store.execute(
         "INSERT INTO med_log (id, person_id, drug, dose, unit, note, recorded_at,"
-        " created_at) VALUES (?,?,?,?,?,?,?,?)",
+        " retro, logged_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         (eintrag_id, data.get("personId") or "", name, menge,
          (data.get("unit") or "mg").strip()[:20],
          (data.get("note") or "").strip()[:500],
-         (data.get("recordedAt") or "").strip() or now_ts(), now_ts()))
+         (data.get("recordedAt") or "").strip() or now_ts(),
+         1 if data.get("retro") else 0, _logged_at(data), now_ts()))
     row = store.one(
-        "SELECT id, person_id, drug, dose, unit, note, recorded_at FROM med_log"
-        " WHERE id=?", (eintrag_id,))
+        "SELECT id, person_id, drug, dose, unit, note, recorded_at, retro, logged_at"
+        " FROM med_log WHERE id=?", (eintrag_id,))
     return _med_row(row) if row else {}
 
 
@@ -1019,20 +1047,24 @@ def import_all(data: dict, replace: bool = True) -> dict:
     for entry in data.get("pain", []):
         statements.append((
             "INSERT INTO pain_log (id, person_id, value, place, note, recorded_at,"
-            " created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
+            " retro, logged_at, created_at) VALUES (?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT (id) DO NOTHING",
             (entry.get("id") or uuid.uuid4().hex[:12], entry.get("personId", ""),
              max(PAIN_MIN, min(PAIN_MAX, int(entry.get("value") or 0))),
              entry.get("place", ""), entry.get("note", ""),
-             entry.get("recordedAt") or now_ts(), now_ts())))
+             entry.get("recordedAt") or now_ts(),
+             1 if entry.get("retro") else 0, entry.get("loggedAt") or "", now_ts())))
 
     for entry in data.get("meds", []):
         statements.append((
             "INSERT INTO med_log (id, person_id, drug, dose, unit, note, recorded_at,"
-            " created_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
+            " retro, logged_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+            " ON CONFLICT (id) DO NOTHING",
             (entry.get("id") or uuid.uuid4().hex[:12], entry.get("personId", ""),
              (entry.get("drug") or "?")[:60], float(entry.get("dose") or 0),
              entry.get("unit") or "mg", entry.get("note", ""),
-             entry.get("recordedAt") or now_ts(), now_ts())))
+             entry.get("recordedAt") or now_ts(),
+             1 if entry.get("retro") else 0, entry.get("loggedAt") or "", now_ts())))
 
     store.execute_many(statements)
     for key, value in (data.get("settings") or {}).items():

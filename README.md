@@ -271,6 +271,32 @@ nie die Aussage.
 - **Das Tagebuch** darunter, nach Tagen gebündelt — die Form, in der man es
   in einer Sprechstunde vorzeigt.
 
+### Jetzt oder nachgetragen
+
+Ganz oben steht ein Schalter mit zwei Stellungen: **Jetzt** (die Vorgabe) und
+**Nachtragen**.
+
+Im schlimmsten Moment greift niemand zum Telefon — Nachtragen muss also
+gehen. Nur darf das eine nicht als das andere durchgehen: Ein Wert, der drei
+Tage später aus dem Gedächtnis kommt, ist nicht dasselbe wie einer vom
+Moment. Darum bekommt jeder nachgetragene Eintrag den Vermerk
+**„nachgetragen"**, der im Tagebuch neben dem Eintrag steht, in der
+Übersicht mitgezählt wird („4 nachgetragen") und in der Sicherung erhalten
+bleibt. Beim Draufhalten steht dabei, *wann* er eingetragen wurde.
+
+Auf **Nachtragen** gestellt, erscheint ein Zeitfeld — mit der jetzigen Zeit
+vorbelegt, damit man nur daran dreht —, und der Kasten bekommt einen
+farbigen Rand. Der eingestellte Zeitpunkt **gilt für Schmerz und Mittel
+gemeinsam**: „Gestern Abend war es eine 8 und ich habe Tilidin genommen" ist
+ein Vorgang, nicht zwei. Ein frischer Besuch des Tagebuchs beginnt immer
+wieder bei *Jetzt*, damit nichts unbemerkt auf einem alten Zeitpunkt landet.
+
+Ob etwas nachgetragen ist, **sagt der Mensch, nicht die Uhr**: Die App
+rechnet das nicht aus Zeitdifferenzen aus. Nur wer schreibt, weiß, ob er aus
+dem Moment oder aus der Erinnerung schreibt. (Technisch käme eine Rechnung
+hier ohnehin nicht weit — die Uhrzeit des Eintrags kommt vom Handy in
+Ortszeit, die des Servers läuft beim Hoster auf UTC.)
+
 ### Schmerzmittel
 
 Im selben Fenster lässt sich festhalten, **wann wie viel von welchem Mittel**
@@ -285,15 +311,14 @@ Stärken:
 | Tilidin | 50, 100, 150, 200 mg · 20 Tropfen |
 | Novalgin | 500, 1000 mg · 20, 40 Tropfen |
 
-Mittel antippen, Menge antippen — eingetragen, mit Uhrzeit. Die Mengen
-klappen erst nach dem ersten Tipp auf; sonst stünden zwanzig Knöpfe
-gleichzeitig da und man trifft am Telefon den falschen.
+Mittel antippen, Menge antippen — eingetragen, für den oben eingestellten
+Zeitpunkt. Die Mengen klappen erst nach dem ersten Tipp auf; sonst stünden
+zwanzig Knöpfe gleichzeitig da und man trifft am Telefon den falschen.
 
-Unter **„Anderes Mittel oder nachtragen"** geht alles Weitere: beliebiger
-Name, Menge, Einheit (mg · Tropfen · Tablette · ml) und eine eigene Uhrzeit,
-wenn man etwas später einträgt. Die Liste der fünf ist eine Abkürzung, keine
-Beschränkung — ein Tagebuch, das nur fünf Mittel kennt, wäre beim sechsten
-wertlos.
+Unter **„Anderes Mittel"** geht alles Weitere: beliebiger Name, Menge und
+Einheit (mg · Tropfen · Tablette · ml). Die Liste der fünf ist eine
+Abkürzung, keine Beschränkung — ein Tagebuch, das nur fünf Mittel kennt,
+wäre beim sechsten wertlos.
 
 **Messungen und Einnahmen stehen in einer gemeinsamen Zeitleiste**, nicht in
 zwei Listen. „Schmerz 7 um 19:00, Ibu 600 um 19:10, Schmerz 3 um 20:30"
