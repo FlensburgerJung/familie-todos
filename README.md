@@ -209,9 +209,13 @@ angetippt hat.
   1. Eingabefeld zum Reinwerfen
   2. schmale Statuszeile: überfällig · heute · bald · zu prüfen
   3. **Jetzt dran** — die Aufgaben des Tages beim Namen, zum Abhaken
-  4. die **Bereiche** als Kacheln: Todos · Einkauf · Termine ·
-     Unternehmungen · Essensideen · PostIt · Wunschzettel · Merken ·
-     Regelmäßig — dazu das **Schmerztagebuch**
+  4. die **Bereiche** als Kacheln, die vier häufigsten vorn:
+     Todos · Einkauf · Wunschzettel · **Schmerztagebuch** — danach
+     Termine · Unternehmungen · Essensideen · PostIt · Merken · Regelmäßig
+
+     Die vier vorderen stehen fest, der Rest folgt der Reihenfolge aus den
+     Einstellungen. Das Schmerztagebuch ist dabei kein Bereich, steht aber
+     mitten unter ihnen.
   5. **Wer macht was** — je Person, plus „Frei zu vergeben"
 
   Die Bereiche sind zweistufig: Ein Tipp auf *Todos* zeigt die einzelnen

@@ -2093,6 +2093,49 @@ function heuteStreifen() {
   ]);
 }
 
+function areaKachel(area) {
+  const todos = areaTodos(area.id);
+  const minutes = area.id === 'tasks' ? sumMinutes(todos) : 0;
+  return el('button', {
+    class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
+    onclick: () => openFocus('area', area.id),
+  }, [
+    el('span', { class: 'big-emoji', text: area.emoji }),
+    el('span', { class: 'big-name', text: area.name }),
+    el('span', { class: 'big-count',
+      text: todos.length
+        ? (minutes ? `${todos.length} · ${formatEffort(minutes)}` : `${todos.length}`)
+        : area.hint }),
+  ]);
+}
+
+/* Welche Kacheln vorn stehen.
+
+   Die Reihenfolge der Bereiche kommt sonst aus der Datenbank (areas.sort).
+   Diese vier sind die, die am häufigsten gebraucht werden, und stehen darum
+   unabhängig davon obenan - das Schmerztagebuch mitten darunter, obwohl es
+   kein Bereich ist.
+
+   Was hier nicht genannt ist, folgt in der Reihenfolge der Datenbank. Steht
+   hier etwas, was es nicht gibt - ein gelöschter Bereich etwa -, wird es
+   übersprungen. */
+const PAIN_KACHEL = 'schmerztagebuch';
+const KACHEL_ORDNUNG = ['tasks', 'shopping', 'wishes', PAIN_KACHEL];
+
+function startKacheln() {
+  const uebrig = allAreas().map(area => ({ id: area.id, baue: () => areaKachel(area) }));
+  // Das Schmerztagebuch führt keine Aufgaben, sondern Messwerte - es liegt
+  // nicht in der Bereichstabelle und bekommt auch keine Listen.
+  uebrig.push({ id: PAIN_KACHEL, baue: painKachel });
+
+  const vorne = [];
+  for (const id of KACHEL_ORDNUNG) {
+    const stelle = uebrig.findIndex(k => k.id === id);
+    if (stelle >= 0) vorne.push(...uebrig.splice(stelle, 1));
+  }
+  return [...vorne, ...uebrig].map(k => k.baue());
+}
+
 /* Die Kachel zum Tagebuch. Zeigt den letzten Wert, nicht eine Anzahl:
    Bei einem Tagebuch ist „wie war es zuletzt" die Frage, nicht „wie viele
    Einträge habe ich". */
@@ -2160,27 +2203,7 @@ function viewStart() {
 
   /* Die Bereiche. */
   view.append(el('section', { class: 'home-section' }, [
-    el('div', { class: 'big-tiles' }, [
-      ...allAreas().map(area => {
-        const todos = areaTodos(area.id);
-        const minutes = area.id === 'tasks' ? sumMinutes(todos) : 0;
-        return el('button', {
-          class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
-          onclick: () => openFocus('area', area.id),
-        }, [
-          el('span', { class: 'big-emoji', text: area.emoji }),
-          el('span', { class: 'big-name', text: area.name }),
-          el('span', { class: 'big-count',
-            text: todos.length
-              ? (minutes ? `${todos.length} · ${formatEffort(minutes)}` : `${todos.length}`)
-              : area.hint }),
-        ]);
-      }),
-      // Das Schmerztagebuch steht als eigene Kachel dazwischen, ist aber kein
-      // Bereich: Es führt keine Aufgaben, sondern Messwerte. Darum liegt es
-      // nicht in der Bereichstabelle und bekommt auch keine Listen.
-      painKachel(),
-    ]),
+    el('div', { class: 'big-tiles' }, startKacheln()),
   ]));
 
   /* Wer macht was. */
