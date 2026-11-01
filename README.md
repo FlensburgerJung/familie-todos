@@ -207,15 +207,69 @@ angetippt hat.
 
 - **Start** — die Schaltzentrale, von oben nach unten:
   1. Eingabefeld zum Reinwerfen
-  2. schmale Statuszeile: überfällig · heute · zu prüfen
-  3. **fünf Bereiche** als Kacheln: Todos · Wunschzettel · Merken ·
-     Regelmäßig · Kalender
-  4. **Wer macht was** — je Person, plus „Frei zu vergeben"
+  2. schmale Statuszeile: überfällig · heute · bald · zu prüfen
+  3. **Jetzt dran** — die Aufgaben des Tages beim Namen, zum Abhaken
+  4. die **Bereiche** als Kacheln: Todos · Einkauf · Termine ·
+     Unternehmungen · Essensideen · PostIt · Wunschzettel · Merken ·
+     Regelmäßig — dazu das **Schmerztagebuch**
+  5. **Wer macht was** — je Person, plus „Frei zu vergeben"
 
   Die Bereiche sind zweistufig: Ein Tipp auf *Todos* zeigt die einzelnen
   Listen (Haushalt, Einkauf, Termine …), ein weiterer deren Einträge.
   „‹ Start" bzw. „‹ Todos" führt zurück. Einstellungen liegen bewusst
   außerhalb, im Tab „Mehr".
+
+### Wo „überfällig · heute · bald" steht
+
+Die Leiste und der Streifen „Jetzt dran" sind die Abkürzung zu dem, was
+ansteht — und die taugt nur, wenn sie da ist, wo man gerade ist. Darum
+stehen sie nicht nur auf der Startseite, sondern überall, wo es um
+Aufgaben geht:
+
+| Ansicht | Leiste |
+|---|---|
+| Start, Woche | ja |
+| Bereich **Todos**, **Termine**, **Regelmäßig** | ja |
+| eine Aufgabenliste (Haushalt, Kindergarten …) | ja |
+| überfällig · heute · bald · zu prüfen | ja |
+| eine Person, „Frei zu vergeben" | ja |
+| **Wunschzettel, Merken, Einkauf, Essensideen, PostIt, Unternehmungen** | nein |
+| Listen, Bilanz, Mehr, zuletzt erledigt, Schmerztagebuch | nein |
+
+Der Maßstab ist keine Liste von Ausnahmen, sondern die Frage, ob in dem
+Bereich Termine überhaupt etwas bedeuten — und das steht schon in der
+Datenbank (`areas.dated`). Auf einem Wunschzettel gibt es kein
+„überfällig"; vier Kacheln mit Zahlen von woanders drängelten sich dort nur
+vor den Inhalt. Für eigene Bereiche, die später unter „Mehr" entstehen,
+gilt die Regel ohne weiteres Zutun.
+
+## Schmerztagebuch
+
+Eine eigene Kachel auf der Startseite, kein Bereich: Hier stehen keine
+Aufgaben, sondern Messwerte.
+
+Jeder Eintrag hält **Datum, Uhrzeit und eine Stärke von 0 bis 10** fest —
+eine visuelle Analogskala (VAS), wie sie in der Schmerzmedizin übliche ist.
+Der Schieber läuft von Grün nach Rot, zu jeder Stufe steht ein Wort dabei
+(„mittel", „sehr stark"), damit eine 6 auch in drei Monaten noch etwas
+sagt. Die Zahl steht immer neben der Farbe — eine Farbe allein trägt hier
+nie die Aussage.
+
+- **Eintragen**: Stärke einstellen, fertig. Datum und Uhrzeit setzt die App.
+- **Körperstelle**: Stellen, die schon vorkamen, stehen als Knöpfe bereit —
+  wer ein Tagebuch führt, hat meist zwei oder drei und will sie nicht jedes
+  Mal tippen. Dazu ein freies Notizfeld („nach der Treppe").
+- **Verlauf**: ein Balken je Eintrag über 7, 14, 30 oder 90 Tage, mit
+  Mittelwert. Bewusst kein Liniendiagramm: Die Einträge liegen zeitlich
+  unregelmäßig, eine Linie behauptete zwischen zwei Messungen einen Verlauf,
+  den niemand beobachtet hat.
+- **Das Tagebuch** darunter, nach Tagen gebündelt, mit Tagesmittel — die
+  Form, in der man es in einer Sprechstunde vorzeigt.
+
+Die Einträge gehören der Person, die am Gerät angemeldet ist, und stehen in
+jeder Sicherung. Das ist das einzige in dieser App, was sich nicht
+wiederherstellen lässt: Eine Aufgabe schreibt man neu, einen Schmerz von
+vorletztem Dienstag nicht.
 
 ### Wann ein Modell gefragt wird — und wann nicht
 
@@ -511,7 +565,7 @@ einrichten-online.sh  Vorbereitung fürs Internet (.venv, Passwort, Datenbanktes
 start.sh              Start zuhause
 render.yaml           Bauplan für Render (kein Dockerfile nötig)
 .python-version       Python-Version für Render
-requirements.txt      nur online nötig: gunicorn + pg8000
+requirements.txt      nur online nötig: gunicorn, pg8000, scramp, certifi
 app/
   wsgi.py             die Anwendung: Routen, Anmeldung, Export
   server.py           Start zuhause (Server aus der Standardbibliothek)

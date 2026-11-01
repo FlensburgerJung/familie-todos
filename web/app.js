@@ -5,6 +5,10 @@ const state = {
   todos: [], lists: [], people: [], settings: {}, keys: {},
   horizons: {}, repeats: {}, efforts: [], listKinds: {},
   recentlyDone: [], areas: [], engineChain: [], deployment: {},
+  pain: [],              // Schmerztagebuch, neueste zuerst
+  painWert: 3,           // Stellung des Schiebers, noch nicht eingetragen
+  painOrt: '',           // zuletzt gewaehlte Koerperstelle
+  painTage: 14,          // Spanne des Verlaufs in Tagen
   me: '',                // wer gerade an diesem Geraet arbeitet
   stale: false,          // zeigt gerade den gepufferten Stand
   engineProblem: null,   // warum zuletzt kein Modell antwortete
@@ -1446,9 +1450,332 @@ function zeigeLaden(ziel, r) {
   }
 }
 
+/* ---------- Schmerztagebuch ---------- */
+
+/* Eine visuelle Analogskala (VAS), wie sie in der Schmerzmedizin üblich ist:
+   0 heißt kein Schmerz, 10 der stärkste vorstellbare. Die Werte sind darum
+   nicht frei wählbar und die Skala nicht einstellbar - sonst lässt sich der
+   Verlauf später mit nichts vergleichen, auch nicht mit dem, was eine Praxis
+   erhebt.
+
+   Jeder Eintrag bekommt Datum und Uhrzeit. Der Zeitstempel kommt vom Gerät,
+   damit man einen Schmerz auch nachtragen kann, ohne dass er auf „jetzt"
+   rutscht. */
+const VAS_MIN = 0;
+const VAS_MAX = 10;
+
+/* Grün nach Rot über den gelben Bereich - der gewohnte Verlauf einer solchen
+   Skala. Der Farbton läuft von 130° (Grün) auf 0° (Rot).
+
+   Die Farbe sagt den Wert nie allein: Neben jedem Balken steht die Zahl.
+   Das ist nicht nur eine Frage der Rot-Grün-Sehschwäche - eine Farbe lässt
+   sich auch schlecht erinnern, eine Zahl schon. */
+function vasTon(wert) {
+  const stufe = Math.max(VAS_MIN, Math.min(VAS_MAX, Number(wert) || 0));
+  return Math.round(130 - stufe * 13);
+}
+
+/* Für Flächen ohne Schrift darauf: Balken, Säulen, Ränder. */
+function vasFarbe(wert) {
+  return `hsl(${vasTon(wert)} 68% 42%)`;
+}
+
+/* Dieselbe Skala, nur dunkler - für die Flächen, auf denen die weiße Zahl
+   steht.
+
+   Nachgerechnet: Bei 42 % Helligkeit erreicht Weiß im gelbgrünen Bereich der
+   Skala nur 2,3:1, nötig sind 3:1 für große fette Schrift. Gerade die Mitte
+   der Skala wäre also am schlechtesten zu lesen gewesen. Bei 33 % besteht
+   jede der elf Stufen mit Luft (schlechteste 3,5:1 bei VAS 5).
+
+   Die Balken bleiben bei 42 %: Dort steht keine Schrift drauf, und der
+   Verlauf soll kräftig bleiben. */
+function vasFarbeTief(wert) {
+  return `hsl(${vasTon(wert)} 70% 33%)`;
+}
+
+/* Worte zur Zahl. Eine 6 allein sagt in drei Monaten nichts mehr. */
+const VAS_WORTE = [
+  'kein Schmerz', 'kaum spürbar', 'leicht', 'gut erträglich', 'unangenehm',
+  'mittel', 'deutlich', 'stark', 'sehr stark', 'kaum auszuhalten',
+  'stärkster vorstellbarer',
+];
+
+function vasWort(wert) {
+  return VAS_WORTE[Math.max(VAS_MIN, Math.min(VAS_MAX, Number(wert) || 0))] || '';
+}
+
+function painEintraege() {
+  return (state.pain || []).filter(e => !state.me || !e.personId
+                                        || e.personId === state.me);
+}
+
+/* Die Körperstellen, die schon einmal vorkamen - als Knöpfe statt als
+   Tippaufgabe. Wer ein Tagebuch führt, hat meist zwei oder drei Stellen,
+   und die will man nicht jedes Mal buchstabieren. */
+function painOrte() {
+  const gesehen = [];
+  for (const eintrag of painEintraege()) {
+    if (eintrag.place && !gesehen.includes(eintrag.place)) gesehen.push(eintrag.place);
+    if (gesehen.length >= 6) break;
+  }
+  return gesehen;
+}
+
+function painZeit(wert) {
+  const zeit = new Date(wert);
+  if (Number.isNaN(zeit.getTime())) return { tag: '', uhr: '' };
+  return {
+    tag: zeit.toLocaleDateString('de-DE',
+      { weekday: 'short', day: '2-digit', month: 'short' }),
+    uhr: zeit.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
+/* Örtliche Zeit im Format, das die Datenbank erwartet. `toISOString` wäre
+   falsch: Das rechnet auf UTC um, und ein Eintrag von 00:30 landete dann auf
+   dem Vortag. */
+function painJetztStempel() {
+  const jetzt = new Date();
+  const zwei = n => String(n).padStart(2, '0');
+  return `${jetzt.getFullYear()}-${zwei(jetzt.getMonth() + 1)}-${zwei(jetzt.getDate())}`
+       + `T${zwei(jetzt.getHours())}:${zwei(jetzt.getMinutes())}:${zwei(jetzt.getSeconds())}`;
+}
+
+function painSchnitt(eintraege) {
+  if (!eintraege.length) return null;
+  const summe = eintraege.reduce((s, e) => s + (Number(e.value) || 0), 0);
+  return Math.round((summe / eintraege.length) * 10) / 10;
+}
+
+/* Der Verlauf als schmale Balken - einer je Eintrag, der jüngste rechts.
+
+   Kein Liniendiagramm: Die Einträge liegen zeitlich unregelmäßig, und eine
+   Linie würde zwischen zwei Messungen einen Verlauf behaupten, den niemand
+   beobachtet hat. Balken sagen nur, was gemessen wurde. */
+function painVerlauf(eintraege) {
+  if (eintraege.length < 2) return null;
+  const grenze = Date.now() - state.painTage * 24 * 3600 * 1000;
+  const fenster = eintraege
+    .filter(e => new Date(e.recordedAt).getTime() >= grenze)
+    .slice()
+    .reverse();
+  if (fenster.length < 2) return null;
+
+  const schnitt = painSchnitt(fenster);
+  return el('div', { class: 'vas-verlauf' }, [
+    el('div', { class: 'vas-verlauf-kopf' }, [
+      el('span', { text: `Verlauf · ${state.painTage} Tage` }),
+      el('span', { class: 'vas-schnitt', text: `⌀ ${String(schnitt).replace('.', ',')}` }),
+      el('select', {
+        'aria-label': 'Zeitspanne des Verlaufs',
+        onchange: event => { state.painTage = Number(event.target.value); render(); },
+      }, [7, 14, 30, 90].map(tage => el('option', {
+        value: String(tage), selected: state.painTage === tage,
+        text: `${tage} Tage`,
+      }))),
+    ]),
+    el('div', { class: 'vas-balken' }, fenster.map(eintrag => {
+      const { tag, uhr } = painZeit(eintrag.recordedAt);
+      return el('span', {
+        class: 'vas-balken-saeule',
+        // Auch 0 muss sichtbar bleiben, sonst sieht ein schmerzfreier Tag
+        // aus wie ein fehlender Eintrag.
+        style: `height:${8 + (Number(eintrag.value) || 0) * 9}%;`
+             + `background:${vasFarbe(eintrag.value)}`,
+        title: `${tag} ${uhr} — ${eintrag.value} von 10 (${vasWort(eintrag.value)})`
+             + (eintrag.place ? ` · ${eintrag.place}` : ''),
+      });
+    })),
+    el('div', { class: 'vas-verlauf-fuss' }, [
+      el('span', { text: '0 = kein Schmerz' }),
+      el('span', { text: '10 = stärkster' }),
+    ]),
+  ]);
+}
+
+async function painEintragen() {
+  const nutzlast = {
+    value: state.painWert,
+    place: state.painOrt,
+    note: (document.getElementById('vas-notiz') || {}).value || '',
+    personId: state.me || '',
+    recordedAt: painJetztStempel(),
+  };
+  try {
+    await api('/api/pain', 'POST', nutzlast);
+    const notiz = document.getElementById('vas-notiz');
+    if (notiz) notiz.value = '';
+    toast(`Eingetragen: ${nutzlast.value} von 10.`);
+    await refresh();
+  } catch (fehler) {
+    toast(fehler.message, true);
+  }
+}
+
+function viewPain() {
+  const eintraege = painEintraege();
+  const crumbs = breadcrumb([
+    { label: '🏠 Start', go: goHome },
+    { label: 'Schmerztagebuch' },
+  ]);
+
+  /* --- Der Schieber --- */
+  const anzeige = el('span', { class: 'vas-zahl', text: String(state.painWert) });
+  const wort = el('span', { class: 'vas-wort', text: vasWort(state.painWert) });
+  const schieber = el('input', {
+    type: 'range', min: String(VAS_MIN), max: String(VAS_MAX), step: '1',
+    value: String(state.painWert), class: 'vas-schieber', id: 'vas-schieber',
+    'aria-label': 'Stärke des Schmerzes von 0 bis 10',
+    // Beim Ziehen nur die Anzeige nachführen, nicht neu zeichnen - sonst
+    // verliert der Schieber unter dem Finger seinen Fokus.
+    oninput: event => {
+      state.painWert = Number(event.target.value);
+      anzeige.textContent = String(state.painWert);
+      anzeige.style.background = vasFarbeTief(state.painWert);
+      wort.textContent = vasWort(state.painWert);
+    },
+  });
+  anzeige.style.background = vasFarbeTief(state.painWert);
+
+  const orte = painOrte();
+
+  /* Die Körperstellen schalten nur ihre eigene Hervorhebung um, statt die
+     Ansicht neu zu zeichnen.
+
+     Sonst geht eine schon getippte Notiz verloren: render() baut das
+     Eingabefeld neu auf und das Getippte ist weg. Derselbe Grund, aus dem
+     der Schieber oben nur seine Anzeige nachführt. */
+  const ortKnoepfe = orte.map(ort => el('button', {
+    type: 'button',
+    class: 'vas-ort' + (state.painOrt === ort ? ' an' : ''),
+    text: ort,
+    onclick: () => {
+      // Nochmal tippen wählt ab - sonst klebt eine Stelle fest.
+      state.painOrt = state.painOrt === ort ? '' : ort;
+      for (const knopf of ortKnoepfe) {
+        knopf.classList.toggle('an', knopf.textContent === state.painOrt);
+      }
+    },
+  }));
+  const orteZeile = orte.length ? el('div', { class: 'vas-orte' }, ortKnoepfe) : null;
+
+  const formular = el('section', { class: 'vas-box' }, [
+    el('div', { class: 'vas-kopf' }, [
+      el('span', { class: 'vas-frage', text: 'Wie stark ist es gerade?' }),
+      el('span', { class: 'vas-anzeige' }, [anzeige, wort]),
+    ]),
+    schieber,
+    el('div', { class: 'vas-enden' }, [
+      el('span', { text: '0 · kein Schmerz' }),
+      el('span', { text: '10 · stärkster' }),
+    ]),
+    orteZeile,
+    el('input', {
+      type: 'text', id: 'vas-notiz', class: 'vas-notiz', maxlength: '200',
+      placeholder: orte.length
+        ? 'Stelle oder Notiz (freiwillig)'
+        : 'Wo? Was war davor? (freiwillig)',
+      // Enter trägt ein - auf dem Telefon der kürzere Weg.
+      onkeydown: event => { if (event.key === 'Enter') painEintragen(); },
+    }),
+    el('button', {
+      type: 'button', class: 'btn btn-primary vas-eintragen',
+      text: 'Jetzt eintragen',
+      onclick: painEintragen,
+    }),
+    el('p', { class: 'hint',
+      text: 'Datum und Uhrzeit setzt die App selbst — du musst nur die Stärke sagen.' }),
+  ]);
+
+  /* --- Der Verlauf --- */
+  const verlauf = painVerlauf(eintraege);
+
+  /* --- Das Tagebuch --- */
+  let liste;
+  if (!eintraege.length) {
+    liste = el('div', { class: 'empty' }, [
+      el('strong', { text: 'Noch kein Eintrag' }),
+      'Oben die Stärke einstellen und eintragen. '
+      + 'Jeder Eintrag wird mit Datum und Uhrzeit festgehalten.',
+    ]);
+  } else {
+    // Nach Tagen bündeln: so liest man einen Verlauf, nicht als lange Reihe.
+    const tage = [];
+    for (const eintrag of eintraege) {
+      const { tag, uhr } = painZeit(eintrag.recordedAt);
+      let gruppe = tage.find(g => g.tag === tag);
+      if (!gruppe) { gruppe = { tag, zeilen: [] }; tage.push(gruppe); }
+      gruppe.zeilen.push({ eintrag, uhr });
+    }
+
+    liste = el('div', { class: 'vas-tage' }, tage.map(gruppe => el('div', {
+      class: 'vas-tag',
+    }, [
+      el('div', { class: 'vas-tag-kopf' }, [
+        el('span', { text: gruppe.tag }),
+        el('span', { class: 'vas-tag-schnitt',
+          text: `⌀ ${String(painSchnitt(gruppe.zeilen.map(z => z.eintrag)))
+                      .replace('.', ',')}` }),
+      ]),
+      ...gruppe.zeilen.map(({ eintrag, uhr }) => el('div', { class: 'vas-zeile' }, [
+        el('span', { class: 'vas-uhr', text: uhr }),
+        // Der Balken liegt in einer Spur fester Breite. Ohne die teilte er
+        // sich den Platz mit der Zahl daneben und schrumpfte mit ihr - die
+        // Länge gäbe dann nicht mehr den Wert wieder, sondern nur noch, wie
+        // breit die Zahl gerade ist.
+        el('span', { class: 'vas-messung' }, [
+          el('span', { class: 'vas-spur' }, [
+            el('span', {
+              class: 'vas-strich',
+              style: `width:${4 + (Number(eintrag.value) || 0) * 9.6}%;`
+                   + `background:${vasFarbe(eintrag.value)}`,
+            }),
+          ]),
+          el('span', { class: 'vas-messwert', text: String(eintrag.value) }),
+        ]),
+        el('span', { class: 'vas-text' }, [
+          eintrag.place ? el('span', { class: 'vas-stelle', text: eintrag.place }) : null,
+          eintrag.note ? el('span', { class: 'vas-notiz-text', text: eintrag.note }) : null,
+        ]),
+        el('button', {
+          type: 'button', class: 'vas-weg', title: 'Eintrag löschen', text: '×',
+          onclick: async () => {
+            try {
+              await api(`/api/pain/${eintrag.id}`, 'DELETE');
+              toast('Eintrag gelöscht.');
+              await refresh();
+            } catch (fehler) { toast(fehler.message, true); }
+          },
+        }),
+      ])),
+    ])));
+  }
+
+  return el('div', {}, [
+    el('div', { class: 'focus-head' }, [
+      crumbs,
+      el('h2', { text: '🩹 Schmerztagebuch' }),
+      el('p', { class: 'hint',
+        text: eintraege.length
+          ? `${eintraege.length} ${eintraege.length === 1 ? 'Eintrag' : 'Einträge'}`
+            + (painSchnitt(eintraege) !== null
+                ? ` · Mittel ${String(painSchnitt(eintraege)).replace('.', ',')} von 10`
+                : '')
+          : 'Stärke, Datum und Uhrzeit — festgehalten für die nächste Sprechstunde.' }),
+    ]),
+    formular,
+    verlauf,
+    liste,
+  ]);
+}
+
 function viewFocus() {
   const { kind, id } = state.focus;
   let title, hint, todos;
+
+  // Das Tagebuch führt keine Aufgaben - es hat seine eigene Ansicht.
+  if (kind === 'pain') return viewPain();
 
   /* Kategorie-Ebene: zeigt die Listen darin als Kacheln, keine Einträge. */
   if (kind === 'area') {
@@ -1645,14 +1972,50 @@ function areaLists(areaId) {
   return state.lists.filter(l => l.kind === areaId);
 }
 
-/* Was drängt: überfällig, heute, zu prüfen.
+/* Wo „überfällig / heute / bald / zu prüfen" hingehört.
 
-   Steht über jeder Ansicht, nicht nur über der Startseite. Es ist die
-   Abkürzung zu dem, was heute wirklich ansteht - und die taugt nur, wenn
-   sie da ist, wo man gerade ist. Sonst klickt man sich erst zurück nach
-   Hause, um zu sehen, was los ist.
+   Vorher stand die Leiste über jeder Ansicht. Auf dem Wunschzettel ist das
+   falsch: Dort gibt es kein „überfällig", und vier Kacheln mit Zahlen, die
+   von woanders stammen, drängeln sich vor den eigentlichen Inhalt.
 
-   Nicht angeheftet: drei Kacheln plus die feste Leiste unten fräßen am
+   Der Maßstab ist nicht eine Liste von Ausnahmen, sondern die Frage, ob in
+   diesem Bereich Termine überhaupt etwas bedeuten - und die beantwortet die
+   Datenbank schon selbst mit `dated`. Todos und Termine: ja. Wunschzettel,
+   Merken, Einkauf, Essensideen: nein. Für später angelegte eigene Bereiche
+   gilt die Regel damit ohne weiteres Zutun. */
+const AUFGABEN_FOKUS = new Set(['overdue', 'today', 'soon', 'inbox',
+                                'person', 'unassigned']);
+
+function istAufgabenBereich(areaId) {
+  // „Regelmäßig" ist kein Bereich der Datenbank, sondern eine Querschnitts-
+  // ansicht über wiederkehrende Aufgaben - und damit zweifellos terminbehaftet.
+  if (areaId === 'repeating') return true;
+  const area = (state.areas || []).find(a => a.id === areaId);
+  // Unbekanntes gilt als Aufgabe - so hält es der Server in area_is_dated auch.
+  return area ? area.dated !== false : true;
+}
+
+function zeigeDringlichkeit() {
+  const fokus = state.focus;
+  if (!fokus) {
+    // Ohne Fokus entscheidet der Tab. „Woche" ist die Terminansicht selbst.
+    return state.tab === 'start' || state.tab === 'week';
+  }
+  if (AUFGABEN_FOKUS.has(fokus.kind)) return true;
+  if (fokus.kind === 'area') return istAufgabenBereich(fokus.id);
+  if (fokus.kind === 'list') {
+    const liste = listById(fokus.id);
+    return liste ? istAufgabenBereich(liste.kind) : false;
+  }
+  // „Zuletzt erledigt" und das Schmerztagebuch brauchen sie nicht.
+  return false;
+}
+
+/* Was drängt: überfällig, heute, bald, zu prüfen. Die Abkürzung zu dem, was
+   ansteht - und die taugt nur, wenn sie da ist, wo man gerade ist. Sonst
+   klickt man sich erst zurück nach Hause, um zu sehen, was los ist.
+
+   Nicht angeheftet: vier Kacheln plus die feste Leiste unten fräßen am
    Telefon zu viel Bildschirm. Sie stehen oben in der Ansicht, also immer
    einen Wisch nach oben entfernt. */
 function urgentBar() {
@@ -1730,6 +2093,30 @@ function heuteStreifen() {
   ]);
 }
 
+/* Die Kachel zum Tagebuch. Zeigt den letzten Wert, nicht eine Anzahl:
+   Bei einem Tagebuch ist „wie war es zuletzt" die Frage, nicht „wie viele
+   Einträge habe ich". */
+function painKachel() {
+  const eintraege = painEintraege();
+  const letzter = eintraege[0];
+  const beschriftung = letzter
+    ? `${letzter.value} von 10 · ${painZeit(letzter.recordedAt).tag}`
+    : 'noch kein Eintrag';
+
+  const kachel = el('button', {
+    class: 'big-tile pain-tile' + (letzter ? '' : ' is-empty'), type: 'button',
+    onclick: () => openFocus('pain'),
+  }, [
+    el('span', { class: 'big-emoji', text: '🩹' }),
+    el('span', { class: 'big-name', text: 'Schmerztagebuch' }),
+    el('span', { class: 'big-count', text: beschriftung }),
+  ]);
+  // Ein farbiger Rand sagt den letzten Stand auf einen Blick - die Zahl
+  // steht daneben, die Farbe trägt also nichts allein.
+  if (letzter) kachel.style.setProperty('--vas-ton', vasFarbe(letzter.value));
+  return kachel;
+}
+
 function viewStart() {
   if (state.focus) return viewFocus();
 
@@ -1773,21 +2160,27 @@ function viewStart() {
 
   /* Die Bereiche. */
   view.append(el('section', { class: 'home-section' }, [
-    el('div', { class: 'big-tiles' }, allAreas().map(area => {
-      const todos = areaTodos(area.id);
-      const minutes = area.id === 'tasks' ? sumMinutes(todos) : 0;
-      return el('button', {
-        class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
-        onclick: () => openFocus('area', area.id),
-      }, [
-        el('span', { class: 'big-emoji', text: area.emoji }),
-        el('span', { class: 'big-name', text: area.name }),
-        el('span', { class: 'big-count',
-          text: todos.length
-            ? (minutes ? `${todos.length} · ${formatEffort(minutes)}` : `${todos.length}`)
-            : area.hint }),
-      ]);
-    })),
+    el('div', { class: 'big-tiles' }, [
+      ...allAreas().map(area => {
+        const todos = areaTodos(area.id);
+        const minutes = area.id === 'tasks' ? sumMinutes(todos) : 0;
+        return el('button', {
+          class: 'big-tile' + (todos.length ? '' : ' is-empty'), type: 'button',
+          onclick: () => openFocus('area', area.id),
+        }, [
+          el('span', { class: 'big-emoji', text: area.emoji }),
+          el('span', { class: 'big-name', text: area.name }),
+          el('span', { class: 'big-count',
+            text: todos.length
+              ? (minutes ? `${todos.length} · ${formatEffort(minutes)}` : `${todos.length}`)
+              : area.hint }),
+        ]);
+      }),
+      // Das Schmerztagebuch steht als eigene Kachel dazwischen, ist aber kein
+      // Bereich: Es führt keine Aufgaben, sondern Messwerte. Darum liegt es
+      // nicht in der Bereichstabelle und bekommt auch keine Listen.
+      painKachel(),
+    ]),
   ]));
 
   /* Wer macht was. */
@@ -2739,9 +3132,11 @@ function render() {
       + 'Abhaken und Ändern geht gleich wieder.',
     ]));
   }
-  view.append(urgentBar());
-  const streifen = heuteStreifen();
-  if (streifen) view.append(streifen);
+  if (zeigeDringlichkeit()) {
+    view.append(urgentBar());
+    const streifen = heuteStreifen();
+    if (streifen) view.append(streifen);
+  }
   view.append((VIEWS[state.tab] || viewStart)());
 }
 
@@ -2971,15 +3366,92 @@ document.getElementById('capture-text').addEventListener('keydown', event => {
 
 window.addEventListener('online', flushQueue);
 
-function showWaking(attempt) {
+/* Alles Zwischengespeicherte wegräumen und neu laden.
+
+   Die Notbremse gegen einen vergifteten Zwischenspeicher: Weil die App-Hülle
+   zuerst aus dem Cache kommt, überlebt eine halb geschriebene app.js jeden
+   Neustart - die App beginnt dann zu starten und kommt nie zum Ende. Von
+   außen ist das nicht zu unterscheiden von einem schlafenden Server, darum
+   muss der Ausweg dort stehen, wo man wartet. */
+async function zwischenspeicherLeeren() {
+  try {
+    if ('serviceWorker' in navigator) {
+      const dienste = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(dienste.map(d => d.unregister()));
+    }
+  } catch (fehler) { /* weiter - der Cache ist der wichtigere Teil */ }
+  try {
+    if (window.caches) {
+      const namen = await caches.keys();
+      await Promise.all(namen.map(name => caches.delete(name)));
+    }
+  } catch (fehler) { /* dann eben nur neu laden */ }
+  // Ohne Parameter liefert der Browser womöglich erneut aus seinem eigenen
+  // Zwischenspeicher aus.
+  location.replace(location.pathname + '?frisch=' + Date.now());
+}
+
+function neuLadenKnopf() {
+  return el('button', {
+    class: 'btn btn-sm', text: 'Nochmal versuchen',
+    onclick: () => location.reload(),
+  });
+}
+
+function notbremseKnopf() {
+  return el('button', {
+    class: 'btn btn-sm btn-quiet', text: 'Zwischenspeicher leeren',
+    title: 'Räumt die gespeicherte App-Hülle weg und lädt alles neu. '
+         + 'Eingeworfenes bleibt erhalten.',
+    onclick: zwischenspeicherLeeren,
+  });
+}
+
+/* Ab wann beim Warten die Notbremse angeboten wird. Ein schlafender Dienst
+   beim Hoster braucht bis zu einer Minute - vorher ist Warten das Richtige
+   und ein Knopf nur Verunsicherung. */
+const NOTBREMSE_AB_MS = 30000;
+let wartenSeit = 0;
+
+function showWaking(attempt, left) {
   const view = document.getElementById('view');
   if (!view) return;
+  if (!wartenSeit) wartenSeit = Date.now();
+  const gewartet = Date.now() - wartenSeit;
+
   view.textContent = '';
   view.append(el('div', { class: 'empty' }, [
     el('strong', {}, [el('span', { class: 'spin' }), ' Server wacht auf']),
     attempt > 1
-      ? `Der Dienst war eingeschlafen. Noch einen Moment … (${attempt}. Versuch)`
+      ? `Der Dienst war eingeschlafen. Noch einen Moment … `
+        + `(${attempt}. Versuch, noch ${left} s)`
       : 'Einen Moment bitte.',
+    // Nach einer halben Minute ist die Frage berechtigt, ob es überhaupt
+    // noch weitergeht. Dann gibt es hier etwas zu tun statt nur zu warten.
+    gewartet > NOTBREMSE_AB_MS
+      ? el('div', { class: 'empty-tat' }, [
+          el('p', { class: 'hint',
+            text: 'Dauert es ungewöhnlich lange? Dann hängt möglicherweise '
+                + 'eine alte gespeicherte Fassung der App.' }),
+          notbremseKnopf(),
+        ])
+      : null,
+  ]));
+}
+
+/* Der Start ist gescheitert - und das muss man sehen.
+
+   Vorher endete dieser Fall in der Aufwach-Anzeige: ein Kreisel, der sich
+   für immer dreht. Lieber eine klare Aussage mit beiden Auswegen. */
+function zeigeStartFehler(fehler) {
+  const view = document.getElementById('view');
+  if (!view) return;
+  const text = (fehler && fehler.message) || String(fehler || 'Unbekannt');
+  view.textContent = '';
+  view.append(el('div', { class: 'empty' }, [
+    el('strong', { text: 'Die App kam nicht hoch' }),
+    el('p', { class: 'hint', text: text }),
+    el('div', { class: 'empty-tat' }, [neuLadenKnopf(), notbremseKnopf()]),
   ]));
 }
 

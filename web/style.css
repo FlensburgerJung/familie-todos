@@ -1627,3 +1627,286 @@ h1 > #home-link:hover { color: var(--accent); }
   .recipe-controls .btn { flex: 1 1 100%; min-height: 44px; }
   .recipe-people { min-height: 44px; }
 }
+
+/* --- Notbremse beim Start --- */
+
+/* Steht unter der Aufwach-Anzeige und im Fehlerschirm: zwei Knöpfe
+   nebeneinander, mit Luft zum Text darüber. */
+.empty-tat {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+.empty-tat p.hint { flex: 1 1 100%; margin: 0 0 4px; }
+.btn-quiet {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+}
+.btn-quiet:hover { color: var(--text); border-color: var(--accent); }
+
+/* --- Schmerztagebuch --- */
+
+/* Die Kachel trägt den letzten Wert als Farbe am linken Rand. Nur als
+   Zugabe: Die Zahl steht in der Kachel, die Farbe sagt nichts allein. */
+.pain-tile { border-left: 3px solid var(--vas-ton, var(--border)); }
+
+.vas-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+  margin-bottom: 18px;
+}
+.vas-kopf {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.vas-frage { font-weight: 550; font-size: 14.5px; }
+.vas-anzeige { display: flex; align-items: center; gap: 8px; }
+/* Die Zahl sitzt auf ihrer eigenen Farbe. Weiße Schrift mit Schattenkante,
+   damit sie auch auf dem gelbgrünen Bereich der Skala lesbar bleibt - dort
+   ist der Untergrund am hellsten. */
+.vas-zahl {
+  min-width: 40px;
+  padding: 3px 6px;
+  border-radius: 9px;
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .45);
+}
+.vas-wort { font-size: 12.5px; color: var(--muted); max-width: 11ch; line-height: 1.2; }
+
+/* Der Schieber selbst trägt den Farbverlauf der Skala. */
+.vas-schieber {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 26px;
+  background: transparent;
+  margin: 2px 0 0;
+}
+.vas-schieber::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(to right,
+    hsl(130 68% 42%), hsl(65 68% 42%), hsl(30 68% 42%), hsl(0 68% 42%));
+}
+.vas-schieber::-moz-range-track {
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(to right,
+    hsl(130 68% 42%), hsl(65 68% 42%), hsl(30 68% 42%), hsl(0 68% 42%));
+}
+/* Großer Griff: Das wird am Telefon mit dem Daumen bedient. */
+.vas-schieber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -8px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 3px solid var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+  cursor: pointer;
+}
+.vas-schieber::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 3px solid var(--text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+  cursor: pointer;
+}
+.vas-schieber:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.vas-enden {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.vas-orte { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.vas-ort {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.vas-ort.an {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 550;
+}
+
+.vas-notiz {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.vas-eintragen { width: 100%; min-height: 46px; }
+.vas-box p.hint { margin: 8px 0 0; text-align: center; }
+
+/* --- Verlauf --- */
+
+.vas-verlauf {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.vas-verlauf-kopf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.vas-schnitt {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-weight: 550;
+}
+.vas-verlauf-kopf select {
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 5px;
+}
+/* Die Säulen stehen auf einer gemeinsamen Grundlinie, damit sich die Höhen
+   vergleichen lassen. */
+.vas-balken {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 84px;
+  padding-top: 2px;
+}
+.vas-balken-saeule {
+  flex: 1 1 0;
+  min-width: 4px;
+  border-radius: 3px 3px 0 0;
+}
+.vas-verlauf-fuss {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+/* --- Das Tagebuch --- */
+
+.vas-tage { display: flex; flex-direction: column; gap: 14px; }
+.vas-tag-kopf {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--muted);
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.vas-tag-schnitt { font-variant-numeric: tabular-nums; font-weight: 400; }
+.vas-zeile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+}
+.vas-uhr {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 42px;
+}
+/* Balken und Zahl bilden zusammen die Messung: der Balken für den Blick,
+   die Zahl für die Gewissheit. */
+.vas-messung {
+  flex: 0 0 112px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+/* Die Spur gibt den Maßstab: Sie ist immer gleich lang, der Balken darin
+   so lang wie der Wert. Ein blasser Untergrund macht nebenbei sichtbar,
+   wie viel fehlt - eine 3 von 10 soll man als wenig erkennen. */
+.vas-spur {
+  flex: 1 1 auto;
+  height: 9px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.vas-strich { display: block; height: 100%; border-radius: 5px; }
+.vas-messwert {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  text-align: right;
+}
+.vas-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12.5px;
+}
+.vas-stelle { font-weight: 550; }
+.vas-notiz-text { color: var(--muted); overflow-wrap: anywhere; }
+.vas-weg {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.vas-weg:hover { background: var(--danger-soft); color: var(--danger); }
+
+/* Am Telefon ist die Zeile zu eng für vier Spalten: Text unter die Messung. */
+@media (max-width: 420px) {
+  .vas-zeile { flex-wrap: wrap; row-gap: 2px; }
+  .vas-text { flex: 1 1 100%; padding-left: 50px; }
+  .vas-messung { flex: 1 1 auto; }
+}
