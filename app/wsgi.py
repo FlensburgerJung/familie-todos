@@ -61,6 +61,7 @@ def _state() -> dict:
         "todos": db.get_todos(),
         "recentlyDone": db.recently_done(24),
         "pain": db.get_pain(),
+        "meds": db.get_meds(),
         "lists": db.get_lists(),
         "people": db.get_people(),
         # calendar_token ist ein Schluessel, schema_version eine interne
@@ -650,6 +651,10 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", r"^/api/pain$", lambda m, p: {"entry": db.add_pain(p)}),
     ("DELETE", r"^/api/pain/([\w-]+)$",
      lambda m, p: (db.delete_pain(m.group(1)), {"ok": True})[1]),
+    ("GET", r"^/api/meds$", lambda m, p: {"meds": db.get_meds()}),
+    ("POST", r"^/api/meds$", lambda m, p: {"entry": _add_med(p)}),
+    ("DELETE", r"^/api/meds/([\w-]+)$",
+     lambda m, p: (db.delete_med(m.group(1)), {"ok": True})[1]),
     ("GET", r"^/api/recent$", lambda m, p: {"todos": db.recently_done(24)}),
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
     ("DELETE", r"^/api/todos/([\w-]+)$", lambda m, p: _delete_todo(m.group(1))),
@@ -769,6 +774,13 @@ def _calendar(request: Request, person_id: str | None) -> Response:
     ics = calendar_ics.build(todos, db.get_lists(), people, name, dated)
     return Response(200, ics.encode("utf-8"), "text/calendar; charset=utf-8",
                     [("Content-Disposition", f'inline; filename="{person_id or "familie"}.ics"')])
+
+
+def _add_med(payload: dict) -> dict:
+    try:
+        return db.add_med(payload)
+    except ValueError as fehler:
+        raise ApiError(str(fehler)) from fehler
 
 
 def _startfehler(fehler: Exception) -> str:

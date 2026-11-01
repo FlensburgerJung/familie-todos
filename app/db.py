@@ -104,6 +104,17 @@ CREATE TABLE IF NOT EXISTS pain_log (
     created_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pain_zeit ON pain_log(recorded_at);
+CREATE TABLE IF NOT EXISTS med_log (
+    id          TEXT PRIMARY KEY,
+    person_id   TEXT NOT NULL DEFAULT '',
+    drug        TEXT NOT NULL,
+    dose        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    unit        TEXT NOT NULL DEFAULT 'mg',
+    note        TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_med_zeit ON med_log(recorded_at);
 CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
 CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(due_date);
 """
@@ -379,7 +390,7 @@ def _migrate_data() -> None:
 # Woran die App erkennt, dass der Aufbau schon erledigt ist. Bei jeder
 # Aenderung an SCHEMA, LATER_COLUMNS, den Startlisten oder _migrate_data
 # hochzaehlen - dann laeuft der Vollaufbau noch einmal.
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 
 def _schema_aktuell() -> bool:
@@ -524,6 +535,69 @@ def add_pain(data: dict) -> dict:
 
 def delete_pain(eintrag_id: str) -> bool:
     return store.execute("DELETE FROM pain_log WHERE id=?", (eintrag_id,)) > 0
+
+
+# --- Schmerzmittel ------------------------------------------------------
+
+# Dieselbe Obergrenze wie beim Tagebuch: Wer viel einträgt, bekommt das
+# Jüngste zu sehen, alles Ältere steht in der Sicherung.
+MED_LIMIT = 400
+
+
+def _med_row(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "personId": row["person_id"] or "",
+        "drug": row["drug"] or "",
+        "dose": float(row["dose"] or 0),
+        "unit": row["unit"] or "mg",
+        "note": row["note"] or "",
+        "recordedAt": row["recorded_at"],
+    }
+
+
+def get_meds(limit: int = MED_LIMIT) -> list[dict]:
+    """Die jüngsten Einnahmen, neueste zuerst."""
+    rows = store.query(
+        "SELECT id, person_id, drug, dose, unit, note, recorded_at FROM med_log"
+        " ORDER BY recorded_at DESC, created_at DESC LIMIT ?", (int(limit),))
+    return [_med_row(r) for r in rows]
+
+
+def add_med(data: dict) -> dict:
+    """Eine Einnahme festhalten.
+
+    Das Mittel kommt als freier Text: Die App bietet die üblichen fünf an,
+    aber ein Tagebuch, das nur die kennt, ist beim sechsten wertlos. Geprüft
+    wird nur, dass überhaupt etwas dasteht.
+    """
+    name = (data.get("drug") or "").strip()[:60]
+    if not name:
+        raise ValueError("Ohne Namen des Mittels lässt sich nichts eintragen.")
+    try:
+        menge = float(data.get("dose") or 0)
+    except (TypeError, ValueError):
+        menge = 0.0
+    # Nach oben begrenzt, damit ein Tippfehler keine unsinnige Tagessumme
+    # erzeugt. Nach unten gilt 0 - manchmal weiss man die Menge nicht mehr.
+    menge = max(0.0, min(100000.0, menge))
+
+    eintrag_id = data.get("id") or uuid.uuid4().hex[:12]
+    store.execute(
+        "INSERT INTO med_log (id, person_id, drug, dose, unit, note, recorded_at,"
+        " created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (eintrag_id, data.get("personId") or "", name, menge,
+         (data.get("unit") or "mg").strip()[:20],
+         (data.get("note") or "").strip()[:500],
+         (data.get("recordedAt") or "").strip() or now_ts(), now_ts()))
+    row = store.one(
+        "SELECT id, person_id, drug, dose, unit, note, recorded_at FROM med_log"
+        " WHERE id=?", (eintrag_id,))
+    return _med_row(row) if row else {}
+
+
+def delete_med(eintrag_id: str) -> bool:
+    return store.execute("DELETE FROM med_log WHERE id=?", (eintrag_id,)) > 0
 
 
 # --- Listen -------------------------------------------------------------
@@ -890,6 +964,7 @@ def export_all() -> dict:
         # nicht wiederherstellen lässt. Eine Aufgabe schreibt man neu, einen
         # Schmerz von vorletztem Dienstag nicht.
         "pain": get_pain(limit=1000000),
+        "meds": get_meds(limit=1000000),
         "settings": get_settings(),
     }
 
@@ -904,7 +979,8 @@ def import_all(data: dict, replace: bool = True) -> dict:
     statements: list[tuple[str, tuple]] = []
     if replace:
         statements += [("DELETE FROM todos", ()), ("DELETE FROM lists", ()),
-                       ("DELETE FROM people", ()), ("DELETE FROM pain_log", ())]
+                       ("DELETE FROM people", ()), ("DELETE FROM pain_log", ()),
+                       ("DELETE FROM med_log", ())]
 
     for entry in data.get("lists", []):
         statements.append((
@@ -949,10 +1025,20 @@ def import_all(data: dict, replace: bool = True) -> dict:
              entry.get("place", ""), entry.get("note", ""),
              entry.get("recordedAt") or now_ts(), now_ts())))
 
+    for entry in data.get("meds", []):
+        statements.append((
+            "INSERT INTO med_log (id, person_id, drug, dose, unit, note, recorded_at,"
+            " created_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
+            (entry.get("id") or uuid.uuid4().hex[:12], entry.get("personId", ""),
+             (entry.get("drug") or "?")[:60], float(entry.get("dose") or 0),
+             entry.get("unit") or "mg", entry.get("note", ""),
+             entry.get("recordedAt") or now_ts(), now_ts())))
+
     store.execute_many(statements)
     for key, value in (data.get("settings") or {}).items():
         if key in DEFAULT_SETTINGS:
             set_settings({key: value})
 
     return {"lists": len(data.get("lists", [])), "people": len(data.get("people", [])),
-            "todos": len(data.get("todos", [])), "pain": len(data.get("pain", []))}
+            "todos": len(data.get("todos", [])), "pain": len(data.get("pain", [])),
+            "meds": len(data.get("meds", []))}

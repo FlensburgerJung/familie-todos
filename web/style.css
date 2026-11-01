@@ -1910,3 +1910,143 @@ h1 > #home-link:hover { color: var(--accent); }
   .vas-text { flex: 1 1 100%; padding-left: 50px; }
   .vas-messung { flex: 1 1 auto; }
 }
+
+/* --- Schmerzmittel --- */
+
+.med-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 13px 14px;
+  margin-bottom: 18px;
+}
+.med-kopf { margin-bottom: 8px; }
+.med-frage { font-weight: 550; font-size: 14.5px; }
+
+.med-liste { display: flex; flex-direction: column; gap: 5px; }
+.med-zeile {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+/* Der Name ist der Schalter: ein Tipp, und die Mengen klappen auf. */
+.med-name {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 11px;
+  min-height: 42px;
+  background: var(--surface-2);
+  border: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.med-name:hover { color: var(--accent); }
+.med-name.an {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.med-pfeil { color: var(--muted); font-size: 13px; }
+.med-name.an .med-pfeil { color: var(--accent); }
+
+/* Die Mengen: große Ziele, denn hier wird mit dem Daumen getroffen. */
+.med-dosen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 9px 11px 11px;
+  background: var(--surface);
+}
+.med-dosis {
+  flex: 1 1 auto;
+  min-width: 78px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.med-dosis:hover { border-color: var(--accent); color: var(--accent); }
+.med-dosis:active { transform: scale(.97); }
+
+/* Freies Feld für alles andere - zugeklappt, damit es den Blick nicht
+   von den fünf Knöpfen wegzieht. */
+.med-anders { margin-top: 10px; }
+.med-anders summary {
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.med-anders summary:hover { color: var(--accent); }
+.med-frei {
+  display: grid;
+  grid-template-columns: 1fr 72px 92px;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.med-frei input,
+.med-frei select {
+  padding: 8px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.med-frei-zeit { grid-column: 1 / 3; }
+.med-frei-knopf { grid-column: 3; min-height: 38px; }
+.med-anders p.hint { margin: 6px 0 0; font-size: 12px; }
+.med-box > p.hint { margin: 10px 0 0; font-size: 12px; text-align: center; }
+
+/* --- Einnahmen in der Zeitleiste --- */
+
+/* Eine Einnahme ist kein Messwert. Der eingerückte Rand links trennt die
+   beiden Arten, ohne eine zweite Liste aufzumachen. */
+.vas-zeile.ist-mittel {
+  border-left: 2px solid var(--accent);
+  padding-left: 7px;
+  margin-left: -9px;
+}
+.med-marke {
+  flex: 0 0 112px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.med-pille { font-size: 13px; }
+.med-menge {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.vas-einnahmen {
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 420px) {
+  .med-marke { flex: 1 1 auto; }
+  .med-frei { grid-template-columns: 1fr 70px; }
+  .med-frei-einheit { grid-column: 2; }
+  .med-frei-zeit { grid-column: 1 / -1; }
+  .med-frei-knopf { grid-column: 1 / -1; }
+}

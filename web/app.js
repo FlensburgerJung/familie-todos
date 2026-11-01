@@ -6,6 +6,8 @@ const state = {
   horizons: {}, repeats: {}, efforts: [], listKinds: {},
   recentlyDone: [], areas: [], engineChain: [], deployment: {},
   pain: [],              // Schmerztagebuch, neueste zuerst
+  meds: [],              // Einnahmen von Schmerzmitteln, neueste zuerst
+  medOffen: '',          // welches Mittel gerade seine Mengen zeigt
   painWert: 3,           // Stellung des Schiebers, noch nicht eingetragen
   painOrt: '',           // zuletzt gewaehlte Koerperstelle
   painTage: 14,          // Spanne des Verlaufs in Tagen
@@ -1505,6 +1507,60 @@ function vasWort(wert) {
   return VAS_WORTE[Math.max(VAS_MIN, Math.min(VAS_MAX, Number(wert) || 0))] || '';
 }
 
+/* Die Mittel, die hier vorkommen - mit ihren üblichen Stärken.
+
+   Die Liste ist eine Abkürzung, keine Beschränkung: Unten gibt es ein
+   freies Feld für alles andere, und der Server nimmt jeden Namen an. Ein
+   Tagebuch, das nur fünf Mittel kennt, wäre beim sechsten wertlos.
+
+   Die Mengen sind die handelsüblichen Stärken, damit Eintragen zwei Tipps
+   bleibt. Sie sind ausdrücklich keine Empfehlung: Diese App hält fest, was
+   genommen wurde - sie sagt nicht, was zu nehmen ist. Darum gibt es hier
+   auch keine Tageshöchstmengen und keine Warnungen. Das gehört in die
+   Packungsbeilage und in die Sprechstunde, nicht in einen Familienkalender. */
+const MEDIKAMENTE = [
+  { id: 'ibuprofen', name: 'Ibuprofen', kurz: 'Ibu',
+    dosen: [[400, 'mg'], [200, 'mg'], [600, 'mg'], [800, 'mg']] },
+  { id: 'paracetamol', name: 'Paracetamol', kurz: 'Para',
+    dosen: [[500, 'mg'], [1000, 'mg']] },
+  { id: 'naproxen', name: 'Naproxen', kurz: 'Naproxen',
+    dosen: [[250, 'mg'], [500, 'mg']] },
+  { id: 'tilidin', name: 'Tilidin', kurz: 'Tilidin',
+    dosen: [[50, 'mg'], [100, 'mg'], [150, 'mg'], [200, 'mg'], [20, 'Tropfen']] },
+  { id: 'novalgin', name: 'Novalgin', kurz: 'Novalgin',
+    dosen: [[500, 'mg'], [1000, 'mg'], [20, 'Tropfen'], [40, 'Tropfen']] },
+];
+
+function medEintraege() {
+  return (state.meds || []).filter(e => !state.me || !e.personId
+                                        || e.personId === state.me);
+}
+
+/* Menge und Einheit, wie man sie hinschreibt: „400 mg", „20 Tropfen".
+   Ganze Zahlen ohne Nachkomma, Bruchteile mit Komma (halbe Tabletten). */
+function medMenge(eintrag) {
+  const zahl = Number(eintrag.dose) || 0;
+  if (!zahl) return eintrag.unit === 'mg' ? '' : eintrag.unit;
+  const text = Number.isInteger(zahl) ? String(zahl)
+                                      : String(Math.round(zahl * 100) / 100).replace('.', ',');
+  return `${text} ${eintrag.unit}`;
+}
+
+async function medEintragen(name, menge, einheit) {
+  try {
+    await api('/api/meds', 'POST', {
+      drug: name, dose: menge, unit: einheit,
+      personId: state.me || '',
+      recordedAt: painJetztStempel(),
+    });
+    state.medOffen = '';
+    toast(`${name} ${menge} ${einheit} eingetragen.`);
+    await refresh();
+  } catch (fehler) {
+    toast(fehler.message, true);
+  }
+}
+
 function painEintraege() {
   return (state.pain || []).filter(e => !state.me || !e.personId
                                         || e.personId === state.me);
@@ -1563,9 +1619,18 @@ function painVerlauf(eintraege) {
   if (fenster.length < 2) return null;
 
   const schnitt = painSchnitt(fenster);
+  // Wie oft in derselben Zeit etwas genommen wurde - die Zahl gehört neben
+  // den Schnitt, sonst liest man einen niedrigen Schnitt als „ging besser",
+  // obwohl er erkauft war.
+  const einnahmen = medEintraege()
+    .filter(e => new Date(e.recordedAt).getTime() >= grenze).length;
   return el('div', { class: 'vas-verlauf' }, [
     el('div', { class: 'vas-verlauf-kopf' }, [
       el('span', { text: `Verlauf · ${state.painTage} Tage` }),
+      einnahmen
+        ? el('span', { class: 'vas-einnahmen',
+            text: `💊 ${einnahmen}` })
+        : null,
       el('span', { class: 'vas-schnitt', text: `⌀ ${String(schnitt).replace('.', ',')}` }),
       el('select', {
         'aria-label': 'Zeitspanne des Verlaufs',
@@ -1611,6 +1676,169 @@ async function painEintragen() {
   } catch (fehler) {
     toast(fehler.message, true);
   }
+}
+
+/* Die Zeile unter der Überschrift: was überhaupt drinsteht. */
+function painKopfzeile(messungen, mittel) {
+  if (!messungen.length && !mittel.length) {
+    return 'Stärke, Mittel, Datum und Uhrzeit — festgehalten für die '
+         + 'nächste Sprechstunde.';
+  }
+  const teile = [];
+  if (messungen.length) {
+    teile.push(`${messungen.length} ${messungen.length === 1 ? 'Messung' : 'Messungen'}`);
+    const schnitt = painSchnitt(messungen);
+    if (schnitt !== null) teile.push(`Mittel ${String(schnitt).replace('.', ',')} von 10`);
+  }
+  if (mittel.length) {
+    teile.push(`${mittel.length} ${mittel.length === 1 ? 'Einnahme' : 'Einnahmen'}`);
+  }
+  return teile.join(' · ');
+}
+
+function wegKnopf(pfad) {
+  return el('button', {
+    type: 'button', class: 'vas-weg', title: 'Eintrag löschen', text: '×',
+    onclick: async () => {
+      try {
+        await api(pfad, 'DELETE');
+        toast('Eintrag gelöscht.');
+        await refresh();
+      } catch (fehler) { toast(fehler.message, true); }
+    },
+  });
+}
+
+/* Was oben am Tag steht: der Schnitt der Messungen und was genommen wurde.
+
+   Zusammengefasst je Mittel und Einheit - „Ibu 800 mg" heißt dann zwei mal
+   400. Unterschiedliche Einheiten werden nicht verrechnet: 500 mg und 20
+   Tropfen Novalgin stehen getrennt, weil sie nicht dasselbe sind.
+
+   Das ist eine Tagessumme, keine Beurteilung. Die App nennt keine
+   Höchstmengen und warnt nicht - das wäre ein Ratschlag, und den gibt sie
+   nicht. */
+function tagesBilanz(messungen, mittel) {
+  const teile = [];
+  const schnitt = painSchnitt(messungen);
+  if (schnitt !== null) teile.push(`⌀ ${String(schnitt).replace('.', ',')}`);
+
+  const summen = [];
+  for (const eintrag of mittel) {
+    const schluessel = `${eintrag.drug}|${eintrag.unit}`;
+    let posten = summen.find(s => s.schluessel === schluessel);
+    if (!posten) {
+      posten = { schluessel, name: eintrag.drug, einheit: eintrag.unit, menge: 0 };
+      summen.push(posten);
+    }
+    posten.menge += Number(eintrag.dose) || 0;
+  }
+  for (const posten of summen) {
+    const kurz = (MEDIKAMENTE.find(m => m.name === posten.name) || {}).kurz
+              || posten.name;
+    teile.push(posten.menge
+      ? `${kurz} ${Number.isInteger(posten.menge) ? posten.menge
+          : String(Math.round(posten.menge * 100) / 100).replace('.', ',')} ${posten.einheit}`
+      : kurz);
+  }
+  return teile.join(' · ');
+}
+
+/* Der Kasten für die Einnahmen.
+
+   Zwei Tipps: Mittel antippen, Menge antippen - eingetragen. Die Mengen
+   erscheinen erst nach dem ersten Tipp, sonst stünden hier zwanzig Knöpfe
+   gleichzeitig und man träfe auf dem Telefon den falschen.
+
+   Die Uhrzeit setzt die App. Wer nachträgt, korrigiert sie nicht - dafür
+   gibt es das freie Feld unten mit eigener Zeitangabe. */
+function medKasten() {
+  const zeilen = MEDIKAMENTE.map(mittel => {
+    const offen = state.medOffen === mittel.id;
+    const kopf = el('button', {
+      type: 'button', class: 'med-name' + (offen ? ' an' : ''),
+      'aria-expanded': String(offen),
+      onclick: () => {
+        state.medOffen = offen ? '' : mittel.id;
+        render();
+      },
+    }, [
+      el('span', { text: mittel.name }),
+      el('span', { class: 'med-pfeil', 'aria-hidden': 'true', text: offen ? '▾' : '›' }),
+    ]);
+
+    return el('div', { class: 'med-zeile' }, [
+      kopf,
+      offen
+        ? el('div', { class: 'med-dosen' }, mittel.dosen.map(([menge, einheit]) =>
+            el('button', {
+              type: 'button', class: 'med-dosis',
+              text: `${menge} ${einheit}`,
+              onclick: () => medEintragen(mittel.name, menge, einheit),
+            })))
+        : null,
+    ]);
+  });
+
+  /* Alles andere - und Nachträge mit eigener Uhrzeit. */
+  const andersName = el('input', {
+    type: 'text', class: 'med-frei-name', placeholder: 'anderes Mittel',
+    maxlength: '60', id: 'med-frei-name',
+  });
+  const andersMenge = el('input', {
+    type: 'text', class: 'med-frei-menge', placeholder: 'Menge',
+    maxlength: '10', id: 'med-frei-menge', inputmode: 'decimal',
+  });
+  const andersEinheit = el('select', { class: 'med-frei-einheit',
+    'aria-label': 'Einheit' },
+    ['mg', 'Tropfen', 'Tablette', 'ml'].map(e =>
+      el('option', { value: e, text: e })));
+  const andersZeit = el('input', {
+    type: 'datetime-local', class: 'med-frei-zeit', id: 'med-frei-zeit',
+    'aria-label': 'Wann (leer = jetzt)',
+  });
+
+  const eintragen = async () => {
+    const name = andersName.value.trim();
+    if (!name) { toast('Welches Mittel war es?', true); return; }
+    try {
+      await api('/api/meds', 'POST', {
+        drug: name,
+        dose: Number(andersMenge.value.replace(',', '.')) || 0,
+        unit: andersEinheit.value,
+        personId: state.me || '',
+        // Leer heißt jetzt. Der Browser liefert hier Ortszeit ohne Zone,
+        // genau die Form, die die Datenbank erwartet.
+        recordedAt: andersZeit.value
+          ? andersZeit.value.length === 16 ? andersZeit.value + ':00' : andersZeit.value
+          : painJetztStempel(),
+      });
+      toast(`${name} eingetragen.`);
+      await refresh();
+    } catch (fehler) { toast(fehler.message, true); }
+  };
+  andersName.addEventListener('keydown', e => { if (e.key === 'Enter') eintragen(); });
+  andersMenge.addEventListener('keydown', e => { if (e.key === 'Enter') eintragen(); });
+
+  return el('section', { class: 'med-box' }, [
+    el('div', { class: 'med-kopf' }, [
+      el('span', { class: 'med-frage', text: '💊 Schmerzmittel genommen?' }),
+    ]),
+    el('div', { class: 'med-liste' }, zeilen),
+    el('details', { class: 'med-anders' }, [
+      el('summary', { text: 'Anderes Mittel oder nachtragen' }),
+      el('div', { class: 'med-frei' }, [
+        andersName, andersMenge, andersEinheit, andersZeit,
+        el('button', { type: 'button', class: 'btn btn-sm med-frei-knopf',
+                       text: 'Eintragen', onclick: eintragen }),
+      ]),
+      el('p', { class: 'hint',
+        text: 'Zeit leer lassen heißt jetzt.' }),
+    ]),
+    el('p', { class: 'hint',
+      text: 'Festgehalten wird, was genommen wurde — die App gibt keine '
+          + 'Dosierungshinweise.' }),
+  ]);
 }
 
 function viewPain() {
@@ -1691,9 +1919,18 @@ function viewPain() {
   /* --- Der Verlauf --- */
   const verlauf = painVerlauf(eintraege);
 
-  /* --- Das Tagebuch --- */
+  /* --- Das Tagebuch: Messungen und Einnahmen in einer Zeitleiste --- */
+
+  /* Beides gehört zusammengelesen, nicht in zwei Listen. „Schmerz 7 um
+     19:00, Ibu 400 um 19:10, Schmerz 3 um 20:30" erzählt etwas - zwei
+     getrennte Listen, zwischen denen man hin- und herrechnet, nicht. */
+  const alles = [
+    ...eintraege.map(e => ({ art: 'schmerz', zeit: e.recordedAt, eintrag: e })),
+    ...medEintraege().map(e => ({ art: 'mittel', zeit: e.recordedAt, eintrag: e })),
+  ].sort((a, b) => String(b.zeit).localeCompare(String(a.zeit)));
+
   let liste;
-  if (!eintraege.length) {
+  if (!alles.length) {
     liste = el('div', { class: 'empty' }, [
       el('strong', { text: 'Noch kein Eintrag' }),
       'Oben die Stärke einstellen und eintragen. '
@@ -1702,69 +1939,74 @@ function viewPain() {
   } else {
     // Nach Tagen bündeln: so liest man einen Verlauf, nicht als lange Reihe.
     const tage = [];
-    for (const eintrag of eintraege) {
-      const { tag, uhr } = painZeit(eintrag.recordedAt);
+    for (const posten of alles) {
+      const { tag, uhr } = painZeit(posten.zeit);
       let gruppe = tage.find(g => g.tag === tag);
       if (!gruppe) { gruppe = { tag, zeilen: [] }; tage.push(gruppe); }
-      gruppe.zeilen.push({ eintrag, uhr });
+      gruppe.zeilen.push({ ...posten, uhr });
     }
 
-    liste = el('div', { class: 'vas-tage' }, tage.map(gruppe => el('div', {
-      class: 'vas-tag',
-    }, [
-      el('div', { class: 'vas-tag-kopf' }, [
-        el('span', { text: gruppe.tag }),
-        el('span', { class: 'vas-tag-schnitt',
-          text: `⌀ ${String(painSchnitt(gruppe.zeilen.map(z => z.eintrag)))
-                      .replace('.', ',')}` }),
+    const schmerzZeile = (eintrag, uhr) => el('div', { class: 'vas-zeile' }, [
+      el('span', { class: 'vas-uhr', text: uhr }),
+      // Der Balken liegt in einer Spur fester Breite. Ohne die teilte er
+      // sich den Platz mit der Zahl daneben und schrumpfte mit ihr - die
+      // Länge gäbe dann nicht mehr den Wert wieder, sondern nur noch, wie
+      // breit die Zahl gerade ist.
+      el('span', { class: 'vas-messung' }, [
+        el('span', { class: 'vas-spur' }, [
+          el('span', {
+            class: 'vas-strich',
+            style: `width:${4 + (Number(eintrag.value) || 0) * 9.6}%;`
+                 + `background:${vasFarbe(eintrag.value)}`,
+          }),
+        ]),
+        el('span', { class: 'vas-messwert', text: String(eintrag.value) }),
       ]),
-      ...gruppe.zeilen.map(({ eintrag, uhr }) => el('div', { class: 'vas-zeile' }, [
-        el('span', { class: 'vas-uhr', text: uhr }),
-        // Der Balken liegt in einer Spur fester Breite. Ohne die teilte er
-        // sich den Platz mit der Zahl daneben und schrumpfte mit ihr - die
-        // Länge gäbe dann nicht mehr den Wert wieder, sondern nur noch, wie
-        // breit die Zahl gerade ist.
-        el('span', { class: 'vas-messung' }, [
-          el('span', { class: 'vas-spur' }, [
-            el('span', {
-              class: 'vas-strich',
-              style: `width:${4 + (Number(eintrag.value) || 0) * 9.6}%;`
-                   + `background:${vasFarbe(eintrag.value)}`,
-            }),
-          ]),
-          el('span', { class: 'vas-messwert', text: String(eintrag.value) }),
+      el('span', { class: 'vas-text' }, [
+        eintrag.place ? el('span', { class: 'vas-stelle', text: eintrag.place }) : null,
+        eintrag.note ? el('span', { class: 'vas-notiz-text', text: eintrag.note }) : null,
+      ]),
+      wegKnopf(`/api/pain/${eintrag.id}`),
+    ]);
+
+    const mittelZeile = (eintrag, uhr) => el('div', { class: 'vas-zeile ist-mittel' }, [
+      el('span', { class: 'vas-uhr', text: uhr }),
+      el('span', { class: 'med-marke' }, [
+        el('span', { class: 'med-pille', 'aria-hidden': 'true', text: '💊' }),
+        el('span', { class: 'med-menge', text: medMenge(eintrag) }),
+      ]),
+      el('span', { class: 'vas-text' }, [
+        el('span', { class: 'vas-stelle', text: eintrag.drug }),
+        eintrag.note ? el('span', { class: 'vas-notiz-text', text: eintrag.note }) : null,
+      ]),
+      wegKnopf(`/api/meds/${eintrag.id}`),
+    ]);
+
+    liste = el('div', { class: 'vas-tage' }, tage.map(gruppe => {
+      const messungen = gruppe.zeilen.filter(z => z.art === 'schmerz')
+                                     .map(z => z.eintrag);
+      const mittel = gruppe.zeilen.filter(z => z.art === 'mittel').map(z => z.eintrag);
+      return el('div', { class: 'vas-tag' }, [
+        el('div', { class: 'vas-tag-kopf' }, [
+          el('span', { text: gruppe.tag }),
+          el('span', { class: 'vas-tag-schnitt',
+            text: tagesBilanz(messungen, mittel) }),
         ]),
-        el('span', { class: 'vas-text' }, [
-          eintrag.place ? el('span', { class: 'vas-stelle', text: eintrag.place }) : null,
-          eintrag.note ? el('span', { class: 'vas-notiz-text', text: eintrag.note }) : null,
-        ]),
-        el('button', {
-          type: 'button', class: 'vas-weg', title: 'Eintrag löschen', text: '×',
-          onclick: async () => {
-            try {
-              await api(`/api/pain/${eintrag.id}`, 'DELETE');
-              toast('Eintrag gelöscht.');
-              await refresh();
-            } catch (fehler) { toast(fehler.message, true); }
-          },
-        }),
-      ])),
-    ])));
+        ...gruppe.zeilen.map(z => z.art === 'schmerz'
+          ? schmerzZeile(z.eintrag, z.uhr)
+          : mittelZeile(z.eintrag, z.uhr)),
+      ]);
+    }));
   }
 
   return el('div', {}, [
     el('div', { class: 'focus-head' }, [
       crumbs,
       el('h2', { text: '🩹 Schmerztagebuch' }),
-      el('p', { class: 'hint',
-        text: eintraege.length
-          ? `${eintraege.length} ${eintraege.length === 1 ? 'Eintrag' : 'Einträge'}`
-            + (painSchnitt(eintraege) !== null
-                ? ` · Mittel ${String(painSchnitt(eintraege)).replace('.', ',')} von 10`
-                : '')
-          : 'Stärke, Datum und Uhrzeit — festgehalten für die nächste Sprechstunde.' }),
+      el('p', { class: 'hint', text: painKopfzeile(eintraege, medEintraege()) }),
     ]),
     formular,
+    medKasten(),
     verlauf,
     liste,
   ]);

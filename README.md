@@ -264,14 +264,52 @@ nie die Aussage.
   wer ein Tagebuch führt, hat meist zwei oder drei und will sie nicht jedes
   Mal tippen. Dazu ein freies Notizfeld („nach der Treppe").
 - **Verlauf**: ein Balken je Eintrag über 7, 14, 30 oder 90 Tage, mit
-  Mittelwert. Bewusst kein Liniendiagramm: Die Einträge liegen zeitlich
-  unregelmäßig, eine Linie behauptete zwischen zwei Messungen einen Verlauf,
-  den niemand beobachtet hat.
-- **Das Tagebuch** darunter, nach Tagen gebündelt, mit Tagesmittel — die
-  Form, in der man es in einer Sprechstunde vorzeigt.
+  Mittelwert und der Zahl der Einnahmen im selben Zeitraum. Bewusst kein
+  Liniendiagramm: Die Einträge liegen zeitlich unregelmäßig, eine Linie
+  behauptete zwischen zwei Messungen einen Verlauf, den niemand beobachtet
+  hat.
+- **Das Tagebuch** darunter, nach Tagen gebündelt — die Form, in der man es
+  in einer Sprechstunde vorzeigt.
 
-Die Einträge gehören der Person, die am Gerät angemeldet ist, und stehen in
-jeder Sicherung. Das ist das einzige in dieser App, was sich nicht
+### Schmerzmittel
+
+Im selben Fenster lässt sich festhalten, **wann wie viel von welchem Mittel**
+genommen wurde. Fünf stehen als Knöpfe bereit, mit ihren handelsüblichen
+Stärken:
+
+| Mittel | Stärken |
+|---|---|
+| Ibuprofen | **400 mg** (vorangestellt), 200, 600, 800 mg |
+| Paracetamol | 500, 1000 mg |
+| Naproxen | 250, 500 mg |
+| Tilidin | 50, 100, 150, 200 mg · 20 Tropfen |
+| Novalgin | 500, 1000 mg · 20, 40 Tropfen |
+
+Mittel antippen, Menge antippen — eingetragen, mit Uhrzeit. Die Mengen
+klappen erst nach dem ersten Tipp auf; sonst stünden zwanzig Knöpfe
+gleichzeitig da und man trifft am Telefon den falschen.
+
+Unter **„Anderes Mittel oder nachtragen"** geht alles Weitere: beliebiger
+Name, Menge, Einheit (mg · Tropfen · Tablette · ml) und eine eigene Uhrzeit,
+wenn man etwas später einträgt. Die Liste der fünf ist eine Abkürzung, keine
+Beschränkung — ein Tagebuch, das nur fünf Mittel kennt, wäre beim sechsten
+wertlos.
+
+**Messungen und Einnahmen stehen in einer gemeinsamen Zeitleiste**, nicht in
+zwei Listen. „Schmerz 7 um 19:00, Ibu 600 um 19:10, Schmerz 3 um 20:30"
+erzählt etwas — zwei getrennte Listen, zwischen denen man hin- und
+herrechnet, nicht. Über jedem Tag steht der Schnitt der Messungen und was an
+dem Tag genommen wurde, je Mittel zusammengefasst: zwei mal Ibu 400 wird zu
+„Ibu 800 mg". Unterschiedliche Einheiten werden nicht verrechnet — 500 mg und
+20 Tropfen Novalgin stehen getrennt, weil sie nicht dasselbe sind.
+
+> Die App **hält fest, was genommen wurde — sie gibt keine Dosierungshinweise**.
+> Es gibt bewusst keine Tageshöchstmengen und keine Warnungen: Das wäre ein
+> Ratschlag, und den kann ein Familienkalender nicht verantworten. Die
+> Tagessumme ist eine Angabe, keine Beurteilung.
+
+Messungen und Einnahmen gehören der Person, die am Gerät angemeldet ist, und
+stehen in jeder Sicherung. Das ist das einzige in dieser App, was sich nicht
 wiederherstellen lässt: Eine Aufgabe schreibt man neu, einen Schmerz von
 vorletztem Dienstag nicht.
 
