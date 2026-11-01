@@ -60,9 +60,13 @@ def _state() -> dict:
     return {
         "todos": db.get_todos(),
         "recentlyDone": db.recently_done(24),
+        "pain": db.get_pain(),
         "lists": db.get_lists(),
         "people": db.get_people(),
-        "settings": {k: v for k, v in settings.items() if k != "calendar_token"},
+        # calendar_token ist ein Schluessel, schema_version eine interne
+        # Marke - beides hat im Browser nichts zu suchen.
+        "settings": {k: v for k, v in settings.items()
+                     if k not in ("calendar_token", "schema_version")},
         "keys": config.key_status(),
         "horizons": {key: spec["label"] for key, spec in HORIZONS.items()},
         "repeats": {key: spec["label"] for key, spec in REPEATS.items()},
@@ -642,6 +646,10 @@ ROUTES: list[tuple[str, str, object]] = [
     ("POST", r"^/api/todos/([\w-]+)/restore$", lambda m, p: _restore(m.group(1))),
     ("POST", r"^/api/todos/([\w-]+)/recipe$", lambda m, p: _recipe(m.group(1), p)),
     ("POST", r"^/api/shopping/here$", lambda m, p: _shopping_here(p)),
+    ("GET", r"^/api/pain$", lambda m, p: {"pain": db.get_pain()}),
+    ("POST", r"^/api/pain$", lambda m, p: {"entry": db.add_pain(p)}),
+    ("DELETE", r"^/api/pain/([\w-]+)$",
+     lambda m, p: (db.delete_pain(m.group(1)), {"ok": True})[1]),
     ("GET", r"^/api/recent$", lambda m, p: {"todos": db.recently_done(24)}),
     ("PATCH", r"^/api/todos/([\w-]+)$", lambda m, p: _patch_todo(m.group(1), p)),
     ("DELETE", r"^/api/todos/([\w-]+)$", lambda m, p: _delete_todo(m.group(1))),
@@ -763,6 +771,30 @@ def _calendar(request: Request, person_id: str | None) -> Response:
                     [("Content-Disposition", f'inline; filename="{person_id or "familie"}.ics"')])
 
 
+def _startfehler(fehler: Exception) -> str:
+    """Kurztext zu einem gescheiterten Start - fuer Augen, nicht fuer Logs.
+
+    Die Meldung geht an den Browser, darum wird sie bewusst knapp gehalten
+    und die Verbindungs-URL nie mitgeschickt: in ihr steht das Passwort der
+    Datenbank. pg8000 und sqlite3 nennen es in ihren Meldungen nicht - aber
+    darauf soll sich hier nichts verlassen.
+    """
+    art = type(fehler).__name__
+    text = str(fehler)
+    url = store.database_url() if store.backend() == "postgres" else ""
+    if url and url in text:
+        text = text.replace(url, "<Verbindungs-URL>")
+    text = text.replace("\n", " ")[:200]
+
+    if "make_channel_binding" in text or "scramp" in text.lower():
+        return ("Der Datenbanktreiber passt nicht zu seiner Anmelde-Bibliothek "
+                "(scramp zu alt). Beim Hoster einmal mit geleertem Build-Cache "
+                "neu bauen - requirements.txt nennt die passende Fassung.")
+    if art in ("StoreError",):
+        return text or "Die Datenbank ist nicht eingerichtet."
+    return (f"Die Datenbank ist nicht erreichbar ({art}). {text}").strip()
+
+
 def _handle(request: Request) -> Response:
     path = request.path
 
@@ -774,7 +806,15 @@ def _handle(request: Request) -> Response:
         return json_response({"ok": True, "backend": store.backend()})
 
     # Alles Weitere braucht die Tabellen.
-    ensure_booted()
+    #
+    # Scheitert das, half die bisherige Antwort niemandem: "Interner Fehler -
+    # siehe Server-Log." Wer die App benutzt, sieht kein Log. Genau so blieb
+    # ein kaputter Datenbanktreiber lange unentdeckt - die App fing an zu
+    # starten und kam nie zum Ende, waehrend /api/health munter 200 meldete.
+    try:
+        ensure_booted()
+    except Exception as fehler:                 # noqa: BLE001 - Klartext statt 500
+        raise ApiError(_startfehler(fehler), 503) from fehler
 
     if path == "/api/people-public" and request.method == "GET":
         # Nur Name und Emoji, damit die Anmeldemaske die Auswahl zeigen kann.

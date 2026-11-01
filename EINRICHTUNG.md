@@ -385,8 +385,10 @@ DATABASE_URL='postgresql://…' .venv/bin/python -m app.check   # online
 
 | Problem | Ursache | Lösung |
 |---|---|---|
+| **App fährt an, kommt aber nie zum Ende.** Render meldet „live", die Seite bleibt beim Aufwachen stehen | Siehe den Kasten unten — meist ein Paket, das nicht zum anderen passt | Log ansehen: `AttributeError` beim Datenbankzugriff? Dann **Clear build cache & deploy** |
 | App startet bei Render nicht, Log sagt „APP_PASSWORD ist nicht gesetzt" | Absicht — ohne Passwort wäre die Liste öffentlich | Variable bei Render eintragen |
 | „Der Treiber pg8000 fehlt" | `DATABASE_URL` gesetzt, Pakete nicht installiert | `.venv/bin/pip install -r requirements.txt` |
+| „Der Datenbanktreiber passt nicht zu seiner Anmelde-Bibliothek" | Veraltetes `scramp` im Build-Cache von Render | **Clear build cache & deploy** (siehe Kasten) |
 | Einordnung ist online plötzlich schlecht | Kein API-Schlüssel gesetzt; online gibt es kein Ollama | Schlüssel als Umgebungsvariable eintragen |
 | Erster Aufruf dauert ewig | Kostenloser Render-Tarif schläft nach 15 Min | normal — oder auf Starter wechseln |
 | Ollama antwortet nicht | Modell nicht geladen oder Ollama aus | `ollama list` prüfen, Ollama starten |
@@ -395,6 +397,45 @@ DATABASE_URL='postgresql://…' .venv/bin/python -m app.check   # online
 
 Das Server-Log findest du bei Render unter **Logs**, zuhause bei eingerichtetem
 Autostart in `data/server.log`.
+
+### Wenn die App startet, aber nie fertig wird
+
+Das ist der unangenehmste Fehler, weil alles in Ordnung aussieht: Render
+meldet „Your service is live", die Gesundheitsprüfung `/api/health` antwortet
+mit 200 — und trotzdem kommt die App nicht hoch. Der Grund ist, dass
+`/api/health` die Datenbank **bewusst nicht anfasst**: Hinge die Antwort an
+ihr, würde der Start als gescheitert gelten, sobald die Datenbank langsam
+hochfährt. Ist aber der Datenbankzugang selbst kaputt, meldet dieser Weg
+weiter „alles gut".
+
+Im Log steht es dann trotzdem — als Traceback bei jeder echten Anfrage.
+Einmal vorgekommen und der Grund für die Festlegung in `requirements.txt`:
+
+```
+AttributeError: module 'scramp' has no attribute 'make_channel_binding'
+```
+
+`pg8000` (der Postgres-Treiber) braucht `scramp` für die Anmeldung, nennt es
+aber nur als Unterabhängigkeit. War `pg8000` aus einem früheren Build schon
+vorhanden, meldet pip „Requirement already satisfied" und sieht die
+Unterabhängigkeiten **nie wieder an** — eine veraltete `scramp`-Fassung bleibt
+dann für immer liegen. Beide Pakete stehen deshalb jetzt ausdrücklich in
+`requirements.txt`.
+
+**Zu tun:**
+
+1. Bei Render unter **Manual Deploy → Clear build cache & deploy**. Nur das
+   räumt den alten Paketstand weg; ein normaler Deploy nicht.
+2. Vorher prüfen lässt sich das mit `python3 -m app.check` — der Abschnitt
+   **Treiber** sagt, ob die Pakete zueinander passen.
+
+In der App selbst steht bei so einem Fehler jetzt ein Klartext-Satz statt
+„Interner Fehler — siehe Server-Log". Und wenn das Warten ungewöhnlich lange
+dauert, erscheint nach einer halben Minute der Knopf **Zwischenspeicher
+leeren**: Der räumt die gespeicherte App-Hülle weg und lädt neu. Das hilft
+gegen den anderen Fall, in dem eine App nie fertig wird — eine halb
+gespeicherte Fassung, die jeden Neustart überlebt. Eingeworfenes bleibt dabei
+erhalten.
 
 ---
 

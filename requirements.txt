@@ -1,5 +1,16 @@
 # Nur für den Online-Betrieb nötig. Zuhause läuft die App ohne Installation.
 gunicorn==23.0.0
 pg8000==1.31.5
+# scramp macht die Anmeldung an Postgres (SCRAM). pg8000 verlangt nur
+# "scramp>=1.4.5" und zieht es als Unterabhängigkeit - und genau das ging
+# beim Hoster schief: Ist pg8000 aus einem früheren Build schon vorhanden,
+# meldet pip "Requirement already satisfied" und sieht die Unterabhängig-
+# keiten nie wieder an. Eine veraltete scramp-Fassung bleibt dann für immer
+# liegen. Der Start scheiterte dadurch an
+#     AttributeError: module 'scramp' has no attribute 'make_channel_binding'
+# bei jedem Datenbankzugriff - und weil /api/health die Datenbank bewusst
+# nicht anfasst, meldete Render trotzdem "live".
+# Darum hier ausdrücklich genannt und festgenagelt.
+scramp==1.4.17
 # Wurzelzertifikate: ohne sie scheitert die TLS-Pruefung zu Neon auf macOS
 certifi>=2024.2.2

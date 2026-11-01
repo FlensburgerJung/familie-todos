@@ -18,6 +18,45 @@ from . import auth, classify, config, db, store, telegram
 OK, FAIL, INFO = "  ✓", "  ✗", "  ·"
 
 
+def _pruefe_treiber() -> int:
+    """Passen die Pakete zueinander, die fuer Postgres gebraucht werden?
+
+    Hintergrund: pg8000 nennt scramp nur als Unterabhaengigkeit. Liegt beim
+    Hoster aus einem aelteren Build eine zu alte scramp-Fassung, meldet pip
+    "already satisfied" und ruehrt sie nicht mehr an. Der Bruch zeigt sich
+    dann erst beim ersten Datenbankzugriff im Betrieb - mit
+    "AttributeError: module 'scramp' has no attribute 'make_channel_binding'"
+    und einer App, die nie fertig hochfaehrt. Hier faellt das vorher auf.
+    """
+    if store.backend() != "postgres":
+        print(f"{INFO} SQLite braucht keine Zusatzpakete.")
+        return 0
+
+    try:
+        import pg8000
+        import pg8000.dbapi  # noqa: F401 - nur der Importtest zaehlt
+    except ImportError as fehler:
+        print(f"{FAIL} pg8000 fehlt: {fehler}")
+        print(f"{INFO} Nachinstallieren mit: pip install -r requirements.txt")
+        return 1
+    print(f"{OK} pg8000 {getattr(pg8000, '__version__', '?')}")
+
+    try:
+        import scramp
+    except ImportError as fehler:
+        print(f"{FAIL} scramp fehlt: {fehler}")
+        return 1
+
+    fassung = getattr(scramp, "__version__", "?")
+    if not hasattr(scramp, "make_channel_binding"):
+        print(f"{FAIL} scramp {fassung} ist zu alt - pg8000 braucht mindestens 1.4.5.")
+        print(f"{INFO} Beim Hoster einmal mit geleertem Build-Cache neu bauen.")
+        print(f"{INFO} Zuhause: pip install -r requirements.txt --upgrade")
+        return 1
+    print(f"{OK} scramp {fassung} passt zu pg8000")
+    return 0
+
+
 def main() -> int:
     problems = 0
 
@@ -32,6 +71,9 @@ def main() -> int:
     if auth.is_hosted() and not auth.enabled():
         print(f"{FAIL} Bei einem Hoster ohne APP_PASSWORD wären die Listen öffentlich.")
         problems += 1
+
+    print("\nTreiber")
+    problems += _pruefe_treiber()
 
     print("\nDatenbank")
     try:

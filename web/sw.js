@@ -2,7 +2,7 @@
    API-Antworten werden bewusst nicht gecacht - veraltete Todos wären
    schlimmer als eine ehrliche Fehlermeldung. */
 
-const CACHE = 'familie-todos-v33';
+const CACHE = 'familie-todos-v34';
 const SHELL = ['/', '/index.html', '/style.css', '/app.js', '/icon.svg',
                '/icon-192.png', '/icon-512.png', '/manifest.webmanifest'];
 
@@ -47,7 +47,18 @@ self.addEventListener('fetch', event => {
           }
           return response;
         })
-        .catch(() => treffer || caches.match('/index.html'));
+        // Ohne Netz und ohne Treffer bleibt die Hülle. Liegt auch die nicht
+        // im Cache, muss hier trotzdem eine Antwort herauskommen: Gibt der
+        // Service Worker `undefined` zurück, scheitert die Anfrage mit einem
+        // TypeError und die Seite bleibt weiß - ohne jeden Hinweis, warum.
+        .catch(async () => (treffer
+          || await caches.match('/index.html')
+          || new Response(
+              '<!doctype html><meta charset="utf-8">'
+              + '<p style="font:16px system-ui;padding:24px">Keine Verbindung — '
+              + 'und nichts gespeichert. Sobald der Server wieder da ist, '
+              + '<a href="/">hier weiter</a>.',
+              { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } })));
 
       // Liegt etwas im Cache, zählt nur das - der Rest läuft nebenher.
       return treffer || ausDemNetz;

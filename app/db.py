@@ -94,6 +94,16 @@ CREATE TABLE IF NOT EXISTS telegram_users (
     person_id  TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pain_log (
+    id          TEXT PRIMARY KEY,
+    person_id   TEXT NOT NULL DEFAULT '',
+    value       INTEGER NOT NULL DEFAULT 0,
+    place       TEXT NOT NULL DEFAULT '',
+    note        TEXT NOT NULL DEFAULT '',
+    recorded_at TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pain_zeit ON pain_log(recorded_at);
 CREATE INDEX IF NOT EXISTS idx_todos_status ON todos(status);
 CREATE INDEX IF NOT EXISTS idx_todos_due ON todos(due_date);
 """
@@ -353,15 +363,6 @@ def _migrate_data() -> None:
                          "geburtstag", "abholen", "bringen"], ensure_ascii=False),
              "appointments", (row["m"] or 0) + 1, now_ts()))
 
-    # Wiederkehrende Aufgaben ohne Datum nachträglich auf heute setzen -
-    # sie standen bisher in keiner einzigen Terminansicht. Läuft bei jedem
-    # Start, findet danach aber nichts mehr: neue bekommen ihr Datum schon
-    # beim Anlegen.
-    store.execute(
-        "UPDATE todos SET due_date=? WHERE status='open'"
-        " AND repeat_rule <> '' AND (due_date IS NULL OR due_date='')",
-        (iso_date(today()),))
-
     # Eine Liste für Bücher, Filme und Podcasts, falls noch keine da ist.
     if not store.one("SELECT 1 AS x FROM lists WHERE kind='media' LIMIT 1"):
         row = store.one("SELECT COALESCE(MAX(sort), 0) AS m FROM lists")
@@ -375,7 +376,54 @@ def _migrate_data() -> None:
              "media", (row["m"] or 0) + 1, now_ts()))
 
 
+# Woran die App erkennt, dass der Aufbau schon erledigt ist. Bei jeder
+# Aenderung an SCHEMA, LATER_COLUMNS, den Startlisten oder _migrate_data
+# hochzaehlen - dann laeuft der Vollaufbau noch einmal.
+SCHEMA_VERSION = "3"
+
+
+def _schema_aktuell() -> bool:
+    """Steht der Aufbau schon? Eine Abfrage, kein Schreibzugriff.
+
+    Fehlt die Tabelle noch, scheitert die Abfrage - genau das ist die
+    Antwort "nein". store._run setzt die Transaktion danach zurueck, die
+    Verbindung bleibt also brauchbar.
+    """
+    try:
+        row = store.one('SELECT "value" AS v FROM settings WHERE "key" = ?',
+                        ("schema_version",))
+    except Exception:
+        return False
+    return bool(row) and row["v"] == SCHEMA_VERSION
+
+
+def _bei_jedem_start() -> None:
+    """Das Wenige, was wirklich bei jedem Start zu laufen hat.
+
+    Wiederkehrende Aufgaben ohne Datum muessen auf heute gesetzt werden -
+    und "heute" ist morgen ein anderer Tag. Das kann also nicht zum
+    einmaligen Aufbau gehoeren.
+    """
+    store.execute(
+        "UPDATE todos SET due_date=? WHERE status='open'"
+        " AND repeat_rule <> '' AND (due_date IS NULL OR due_date='')",
+        (iso_date(today()),))
+
+
 def init() -> None:
+    """Datenbank bereitmachen.
+
+    Der Vollaufbau kostet rund fuenfzig Anweisungen, darunter elf absichtlich
+    scheiternde ALTER TABLE samt Ruecksetzen. Zuhause fallen die nicht auf.
+    Beim Hoster liegen zwischen jeder Anweisung und ihrer Antwort aber ein
+    Netzweg und eine Datenbank, die aus dem Ruhezustand hochfaehrt - und so
+    lange haelt der erste Zugriff die Sperre und damit alle anderen Anfragen.
+    Darum laeuft der Aufbau nur, wenn die Fassung nicht schon eingetragen ist.
+    """
+    if _schema_aktuell():
+        _bei_jedem_start()
+        return
+
     store.script(SCHEMA)
     _migrate_columns()
     # Ob die Datenbank fabrikneu ist, muss feststehen, bevor die erste Zeile
@@ -392,6 +440,18 @@ def init() -> None:
     if not get_settings().get("calendar_token"):
         import secrets as _secrets
         set_settings({"calendar_token": _secrets.token_urlsafe(18)})
+    _bei_jedem_start()
+    # Zuletzt: Scheitert etwas davor, fehlt die Marke und der Aufbau wird
+    # beim naechsten Start erneut versucht.
+    #
+    # Direkt geschrieben, nicht ueber set_settings: das laesst bewusst nur
+    # Schluessel aus DEFAULT_SETTINGS durch, damit die Einstellungsmaske
+    # keine beliebigen Werte ablegen kann. Diese Marke gehoert der App,
+    # nicht den Einstellungen.
+    store.execute(
+        'INSERT INTO settings ("key", "value") VALUES (?,?)'
+        ' ON CONFLICT ("key") DO UPDATE SET "value" = excluded."value"',
+        ("schema_version", SCHEMA_VERSION))
 
 
 # --- Settings -----------------------------------------------------------
@@ -408,6 +468,62 @@ def set_settings(values: dict) -> None:
     ]
     if statements:
         store.execute_many(statements)
+
+
+# --- Schmerztagebuch ----------------------------------------------------
+
+# Wie viele Einträge an den Browser gehen. Ein Tagebuch wächst unbegrenzt,
+# der Startbildschirm soll davon nicht langsamer werden. Für den Verlauf
+# reicht das Jüngste; alles Ältere steht in der Sicherung.
+PAIN_LIMIT = 400
+
+# Die Spanne der visuellen Analogskala. 0 = kein Schmerz, 10 = stärkster
+# vorstellbarer. Medizinisch üblich und darum nicht einstellbar.
+PAIN_MIN, PAIN_MAX = 0, 10
+
+
+def _pain_row(row: dict) -> dict:
+    return {
+        "id": row["id"],
+        "personId": row["person_id"] or "",
+        "value": int(row["value"] or 0),
+        "place": row["place"] or "",
+        "note": row["note"] or "",
+        "recordedAt": row["recorded_at"],
+    }
+
+
+def get_pain(limit: int = PAIN_LIMIT) -> list[dict]:
+    """Die jüngsten Einträge, neueste zuerst."""
+    rows = store.query(
+        "SELECT id, person_id, value, place, note, recorded_at FROM pain_log"
+        " ORDER BY recorded_at DESC, created_at DESC LIMIT ?", (int(limit),))
+    return [_pain_row(r) for r in rows]
+
+
+def add_pain(data: dict) -> dict:
+    """Einen Eintrag anlegen.
+
+    Der Zeitstempel kommt vom Gerät, nicht vom Server: Wer einen Schmerz
+    nachträgt, meint die Uhrzeit, zu der er da war. Fehlt er, gilt jetzt.
+    """
+    eintrag_id = data.get("id") or uuid.uuid4().hex[:12]
+    wert = max(PAIN_MIN, min(PAIN_MAX, int(data.get("value") or 0)))
+    wann = (data.get("recordedAt") or "").strip() or now_ts()
+    store.execute(
+        "INSERT INTO pain_log (id, person_id, value, place, note, recorded_at,"
+        " created_at) VALUES (?,?,?,?,?,?,?)",
+        (eintrag_id, data.get("personId") or "", wert,
+         (data.get("place") or "").strip()[:80],
+         (data.get("note") or "").strip()[:500], wann, now_ts()))
+    row = store.one(
+        "SELECT id, person_id, value, place, note, recorded_at FROM pain_log"
+        " WHERE id=?", (eintrag_id,))
+    return _pain_row(row) if row else {}
+
+
+def delete_pain(eintrag_id: str) -> bool:
+    return store.execute("DELETE FROM pain_log WHERE id=?", (eintrag_id,)) > 0
 
 
 # --- Listen -------------------------------------------------------------
@@ -770,6 +886,10 @@ def export_all() -> dict:
         "lists": get_lists(),
         "people": get_people(),
         "todos": get_todos(),
+        # Das Schmerztagebuch gehört dazu: Es ist das einzige hier, was sich
+        # nicht wiederherstellen lässt. Eine Aufgabe schreibt man neu, einen
+        # Schmerz von vorletztem Dienstag nicht.
+        "pain": get_pain(limit=1000000),
         "settings": get_settings(),
     }
 
@@ -784,7 +904,7 @@ def import_all(data: dict, replace: bool = True) -> dict:
     statements: list[tuple[str, tuple]] = []
     if replace:
         statements += [("DELETE FROM todos", ()), ("DELETE FROM lists", ()),
-                       ("DELETE FROM people", ())]
+                       ("DELETE FROM people", ()), ("DELETE FROM pain_log", ())]
 
     for entry in data.get("lists", []):
         statements.append((
@@ -820,10 +940,19 @@ def import_all(data: dict, replace: bool = True) -> dict:
              entry.get("createdAt") or now_ts(), entry.get("doneAt"),
              entry.get("repeat", ""), int(entry.get("minutes") or 0))))
 
+    for entry in data.get("pain", []):
+        statements.append((
+            "INSERT INTO pain_log (id, person_id, value, place, note, recorded_at,"
+            " created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT (id) DO NOTHING",
+            (entry.get("id") or uuid.uuid4().hex[:12], entry.get("personId", ""),
+             max(PAIN_MIN, min(PAIN_MAX, int(entry.get("value") or 0))),
+             entry.get("place", ""), entry.get("note", ""),
+             entry.get("recordedAt") or now_ts(), now_ts())))
+
     store.execute_many(statements)
     for key, value in (data.get("settings") or {}).items():
         if key in DEFAULT_SETTINGS:
             set_settings({key: value})
 
     return {"lists": len(data.get("lists", [])), "people": len(data.get("people", [])),
-            "todos": len(data.get("todos", []))}
+            "todos": len(data.get("todos", [])), "pain": len(data.get("pain", []))}
